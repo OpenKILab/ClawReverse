@@ -1,0 +1,56 @@
+{
+  "id": "step-rollback",
+  "name": "Step Rollback",
+  "version": "0.1.0",
+  "description": "Gateway rollback and session checkout plugin for OpenClaw.",
+  "runtime": {
+    "entry": "./dist/index.js"
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "workspaceRoots": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [
+          "~/.openclaw/workspace"
+        ]
+      },
+      "checkpointDir": {
+        "type": "string",
+        "default": "~/.openclaw/plugins/step-rollback/checkpoints"
+      },
+      "registryDir": {
+        "type": "string",
+        "default": "~/.openclaw/plugins/step-rollback/registry"
+      },
+      "runtimeDir": {
+        "type": "string",
+        "default": "~/.openclaw/plugins/step-rollback/runtime"
+      },
+      "reportsDir": {
+        "type": "string",
+        "default": "~/.openclaw/plugins/step-rollback/reports"
+      },
+      "maxCheckpointsPerSession": {
+        "type": "number",
+        "default": 100
+      },
+      "allowContinuePrompt": {
+        "type": "boolean",
+        "default": true
+      },
+      "stopRunBeforeRollback": {
+        "type": "boolean",
+        "default": true
+      }
+    },
+    "additionalProperties": false
+  }
+}
