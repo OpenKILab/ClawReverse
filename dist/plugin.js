@@ -484,11 +484,11 @@ export class StepRollbackPlugin {
     return this.services.reportWriter.get(rollbackId);
   }
 
-  async rollback({ agentId, sessionId, checkpointId }) {
+  async rollback({ agentId, sessionId, checkpointId, restoreWorkspace = false }) {
     this.assertSessionRequest(agentId, sessionId);
     ensureCondition(checkpointId, "CHECKPOINT_NOT_FOUND", "checkpointId is required.");
     this.logger.info(
-      `[${manifest.id}] rollback requested agent='${agentId}' session='${sessionId}' checkpoint='${checkpointId}'`
+      `[${manifest.id}] rollback requested agent='${agentId}' session='${sessionId}' checkpoint='${checkpointId}' restoreWorkspace='${restoreWorkspace ? "true" : "false"}'`
     );
 
     return this.services.lockManager.withLock(agentId, sessionId, async () => {
@@ -537,7 +537,7 @@ export class StepRollbackPlugin {
         }
 
         await this.services.checkpointManager.restore(checkpointId, {
-          restoreWorkspace: true,
+          restoreWorkspace: Boolean(restoreWorkspace),
           restoreRuntimeState: true
         });
 
@@ -556,7 +556,8 @@ export class StepRollbackPlugin {
           targetEntryId: checkpoint.entryId,
           triggeredAt: nowIso(),
           result: "success",
-          message: "rollback completed"
+          message: restoreWorkspace ? "rollback completed" : "rollback completed without workspace restore",
+          restoredWorkspace: Boolean(restoreWorkspace)
         });
 
         this.logger.info(
@@ -570,6 +571,7 @@ export class StepRollbackPlugin {
           checkpointId,
           targetEntryId: checkpoint.entryId,
           result: "success",
+          restoredWorkspace: Boolean(restoreWorkspace),
           awaitingContinue: false,
           activeHeadEntryId: checkpoint.entryId
         };
@@ -593,7 +595,8 @@ export class StepRollbackPlugin {
           targetEntryId: checkpoint?.entryId ?? null,
           triggeredAt: nowIso(),
           result: "failed",
-          message: normalizedError.message
+          message: normalizedError.message,
+          restoredWorkspace: Boolean(restoreWorkspace)
         });
 
         throw normalizedError;
@@ -603,10 +606,10 @@ export class StepRollbackPlugin {
     });
   }
 
-  async continue({ agentId, sessionId, checkpointId, prompt, newAgentId, cloneAuth }) {
+  async continue({ agentId, sessionId, checkpointId, prompt, newAgentId, cloneAuth, log = false }) {
     this.assertSessionRequest(agentId, sessionId);
     this.logger.info(
-      `[${manifest.id}] continue requested agent='${agentId}' session='${sessionId}' checkpoint='${checkpointId ?? "-"}' prompt='${prompt ?? "-"}'`
+      `[${manifest.id}] continue requested agent='${agentId}' session='${sessionId}' checkpoint='${checkpointId ?? "-"}' prompt='${prompt ?? "-"}' newAgent='${newAgentId ?? "-"}' log='${log ? "true" : "false"}'`
     );
 
     ensureCondition(
@@ -621,7 +624,6 @@ export class StepRollbackPlugin {
       "continue requires a non-empty prompt.",
       { agentId, sessionId, checkpointId }
     );
-
     if (!this.config.allowContinuePrompt) {
       throw new StepRollbackError(
         "CONTINUE_START_FAILED",
@@ -657,7 +659,8 @@ export class StepRollbackPlugin {
       prompt,
       newAgentId,
       cloneAuth,
-      branchId
+      branchId,
+      log
     });
 
     const started = forkResult === undefined ? true : forkResult === true || forkResult.started !== false;
@@ -673,6 +676,8 @@ export class StepRollbackPlugin {
     const resolvedSessionKey = forkResult?.newSessionKey ?? null;
     const resolvedWorkspacePath = forkResult?.newWorkspacePath ?? null;
     const resolvedAgentDir = forkResult?.newAgentDir ?? null;
+    const resolvedLogFilePath = forkResult?.logFilePath ?? null;
+    const createdNewAgent = forkResult?.createdNewAgent ?? true;
     const branchRecord = {
       branchId,
       branchType: "agent",
@@ -683,11 +688,13 @@ export class StepRollbackPlugin {
       newAgentId: resolvedAgentId,
       newWorkspacePath: resolvedWorkspacePath,
       newAgentDir: resolvedAgentDir,
+      logFilePath: resolvedLogFilePath,
       newSessionId: resolvedSessionId,
       newSessionKey: resolvedSessionKey,
       prompt,
       createdAt: nowIso(),
-      reason: "continue"
+      reason: "continue",
+      createdNewAgent
     };
 
     await this.services.registry.saveBranch(branchRecord);
@@ -723,8 +730,10 @@ export class StepRollbackPlugin {
       newAgentId: resolvedAgentId,
       newWorkspacePath: resolvedWorkspacePath,
       newAgentDir: resolvedAgentDir,
+      logFilePath: resolvedLogFilePath,
       newSessionId: resolvedSessionId,
       newSessionKey: resolvedSessionKey,
+      createdNewAgent,
       continued: true,
       started: forkResult?.started !== false,
       usedPrompt: true

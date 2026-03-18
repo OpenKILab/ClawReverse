@@ -5,8 +5,8 @@ Chinese version: [`README.zh-CN.md`](./README.zh-CN.md)
 `SecureStepClaw` is an OpenClaw `step-rollback` Native Plugin project. Its intended command semantics are:
 
 - only state-changing tool calls should create checkpoints; read-only calls should be skipped
-- `rollback` only restores the source side in place
-- `continue` must require `--prompt` and must fork a new workspace, a new agent, and a new session from a checkpoint
+- `rollback` keeps the parent workspace untouched by default and only restores it in place when explicitly requested
+- `continue` must require `--prompt` and must create a new session from a checkpoint, reusing the latest child agent by default or creating a fresh child agent/workspace when requested
 
 ## Current note
 
@@ -43,7 +43,11 @@ Read-only tools such as `read`, and read-only shell commands such as `ls`, `find
 
 ### Rollback
 
-`rollback` restores the source session / source workspace to a chosen checkpoint.
+`rollback` rewinds the source session to a chosen checkpoint.
+
+By default it must not rewrite the parent workspace.
+
+If the caller explicitly requests an in-place restore, `rollback` may also restore the source workspace to the chosen checkpoint.
 
 `rollback` must not:
 
@@ -59,14 +63,13 @@ Its semantics are fixed:
 
 - `--prompt` is required
 - a checkpoint must be selected
-- a new workspace must be created
-- a new agent must be created
+- a new child agent and workspace must be created every time
 - a new session must be created
 
-The child branch is built from:
+The continued branch is built from:
 
-- new workspace: materialized from checkpoint file snapshots
-- new agent: copied from the necessary parent agent configuration
+- target workspace: materialized from checkpoint file snapshots
+- target agent: a newly created child copied from the necessary parent agent configuration
 - new session: rebuilt from the checkpoint session history prefix with a new session name / id
 - new prompt: appended as the next input in the child session
 - child execution: resumed through the standard `openclaw agent --agent <child-agent> --session-id <child-session> --message "..."` flow once the checkpoint prefix is restored
@@ -148,6 +151,12 @@ Important config note:
 
 ## Primary commands
 
+Print the full Step Rollback CLI overview:
+
+```bash
+openclaw steprollback --help
+```
+
 ### Read commands
 
 ```bash
@@ -157,17 +166,18 @@ openclaw steprollback sessions --agent <agentId>
 openclaw steprollback checkpoints --agent <agentId> --session <sessionId>
 openclaw steprollback checkpoint --checkpoint <checkpointId>
 openclaw steprollback rollback-status --agent <agentId> --session <sessionId>
-openclaw steprollback doctor
+openclaw steprollback nodes --agent <agentId> --session <sessionId>
+openclaw steprollback report --rollback <rollbackId>
+openclaw steprollback branch --branch <branchId>
 ```
 
 ### Write commands
 
 ```bash
 openclaw steprollback setup
-openclaw steprollback startup
-openclaw steprollback rollback --agent <agentId> --session <sessionId> --checkpoint <checkpointId>
-openclaw steprollback continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt "..."
-openclaw steprollback gc [--dry-run]
+openclaw steprollback rollback --agent <agentId> --session <sessionId> --checkpoint <checkpointId> [--restore-workspace]
+openclaw steprollback continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt "..." [--new-agent <agentId>] [--clone-auth <mode>] [--log]
+openclaw steprollback checkout --agent <agentId> --source-session <sessionId> --entry <entryId> [--continue] [--prompt "..."]
 ```
 
 ## Main workflow
@@ -198,11 +208,25 @@ If you do not see checkpoints yet, check these first:
 
 ### 4. Optional: rollback for in-place restore
 
+By default, `rollback` only moves the plugin/runtime cursor back to the checkpoint. It does not rewrite the parent workspace unless you ask for that explicitly.
+
+Rollback without touching the parent workspace:
+
 ```bash
 openclaw steprollback rollback \
   --agent main \
   --session <session-id> \
   --checkpoint <checkpoint-id>
+```
+
+Rollback and also restore the parent workspace in place:
+
+```bash
+openclaw steprollback rollback \
+  --agent main \
+  --session <session-id> \
+  --checkpoint <checkpoint-id> \
+  --restore-workspace
 ```
 
 Then inspect status:
@@ -215,6 +239,15 @@ Important: rollback only restores the source side. It does not create a child ag
 
 ### 5. Continue to fork a new agent
 
+`continue` always creates a new child agent, a new workspace, and a new session from the checkpoint.
+
+Agent selection works like this:
+
+- a fresh child agent/workspace is always created
+- `--new-agent <agentId>` lets you name the fresh child agent when creating one
+
+Continue using the default child naming:
+
 ```bash
 openclaw steprollback continue \
   --agent main \
@@ -223,11 +256,24 @@ openclaw steprollback continue \
   --prompt "Continue from this historical point, but try a different approach."
 ```
 
-This command should create:
+Continue and explicitly name the new child agent:
 
+```bash
+openclaw steprollback continue \
+  --agent main \
+  --session <session-id> \
+  --checkpoint <checkpoint-id> \
+  --prompt "Continue from this historical point in a brand new child." \
+  --new-agent main-cp-0004
+```
+
+If a child launch looks suspicious or appears to stall, rerun with `--log`. The plugin will print extra launch diagnostics and return a `logFilePath` pointing at the captured child process log under the runtime directory.
+
+This command should always create:
+
+- a new session
 - a new workspace
 - a new agent
-- a new session
 
 and return fields such as:
 
@@ -248,6 +294,18 @@ Important:
 - `--prompt` is required for continue
 - continue is a fork operation, not an in-place resume of the parent agent
 - after the child workspace and child session are rebuilt, the plugin should resume the child through the standard `openclaw agent` message path
+
+## Other inspection and checkout commands
+
+These commands are useful around the main checkpoint -> rollback / continue workflow:
+
+```bash
+openclaw steprollback nodes --agent main --session <session-id>
+openclaw steprollback checkout --agent main --source-session <session-id> --entry <entry-id>
+openclaw steprollback checkout --agent main --source-session <session-id> --entry <entry-id> --continue --prompt "Continue from this entry."
+openclaw steprollback report --rollback <rollback-id>
+openclaw steprollback branch --branch <branch-id>
+```
 
 ## What continue copies
 
@@ -286,19 +344,15 @@ Git shadow snapshots must remain isolated from the user's real project repositor
 
 ## Current code status
 
-The repository already covers the main direction for:
+The repository currently provides:
 
 - automatic checkpoints on state-changing tool calls
 - checkpoint queries
-- baseline rollback behavior
-- baseline continue / branching foundations
+- rollback for source-side restore
+- continue / branching through fresh child agents and sessions
+- checkpoint-backed node listing, checkout, rollback reports, and branch inspection
 
 The native bridge now prefers the documented `openclaw agent --message` continuation path and treats lower-level runtime or Gateway helpers as fallback compatibility paths.
-
-So read this README as:
-
-- the intended stable command contract for this project
-- the direction that future code alignment should follow if runtime behavior differs today
 
 ## Verification
 
@@ -307,5 +361,3 @@ Run from the repo root:
 ```bash
 npm test
 ```
-
-This documentation update did not change code.

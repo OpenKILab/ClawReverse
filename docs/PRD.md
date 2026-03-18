@@ -118,12 +118,12 @@ P0 must provide:
 - rollback status queries
 - continue that forks a new workspace / new agent / new session from a checkpoint
 - agent / session inspection commands
-- basic operational commands such as doctor / gc
-- human-readable output and `--json` output for all commands
+- checkpoint-backed node / checkout / report / branch commands
+- a root `openclaw steprollback --help` overview plus `--json` on commands that declare it
 
 ### 4.2 P1 Goals
 
-- stronger retention / prune / gc policies
+- stronger retention / prune policies
 - better lineage visualization
 - better support for group / topic / custom sessions
 - better support for sandbox workspaces
@@ -146,24 +146,25 @@ P0 does not include:
 
 | Command | Type | Semantics |
 | --- | --- | --- |
-| `openclaw steprollback status` | Read | Show plugin state and runtime prerequisites |
+| `openclaw steprollback --help` | Read | Show an overview of all registered commands and flags |
 | `openclaw steprollback setup` | Write | Initialize plugin directories and config |
-| `openclaw steprollback startup` | Write | Alias of `setup` |
+| `openclaw steprollback status` | Read | Show plugin state and runtime flags |
 | `openclaw steprollback agents` | Read | Show agent summaries |
 | `openclaw steprollback sessions --agent <agentId>` | Read | Show sessions for an agent |
 | `openclaw steprollback checkpoints --agent <agentId> --session <sessionId>` | Read | Show checkpoint list for a session |
 | `openclaw steprollback checkpoint --checkpoint <checkpointId>` | Read | Show one checkpoint in detail |
 | `openclaw steprollback rollback --agent <agentId> --session <sessionId> --checkpoint <checkpointId>` | Write | Restore the source session / workspace in place |
 | `openclaw steprollback rollback-status --agent <agentId> --session <sessionId>` | Read | Show rollback state |
-| `openclaw steprollback continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt \"...\"` | Write | Fork a new workspace / new agent / new session from a checkpoint |
-| `openclaw steprollback doctor` | Read | Run health checks |
-| `openclaw steprollback gc [--dry-run]` | Write | Clean and reclaim old state |
+| `openclaw steprollback continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt \"...\" [--new-agent <agentId>] [--clone-auth <mode>] [--log]` | Write | Fork a new workspace / new agent / new session from a checkpoint |
+| `openclaw steprollback nodes --agent <agentId> --session <sessionId>` | Read | List checkpoint-backed nodes that can be checked out |
+| `openclaw steprollback checkout --agent <agentId> --source-session <sessionId> --entry <entryId> [--continue] [--prompt \"...\"]` | Write | Create a new session from a checkpoint-backed entry |
+| `openclaw steprollback report --rollback <rollbackId>` | Read | Show a rollback report |
+| `openclaw steprollback branch --branch <branchId>` | Read | Show a checkout branch record |
 
 ### 6.2 Auxiliary Commands
 
-If the following commands remain available, they are auxiliary or advanced features and must not redefine the main product semantics:
+The following commands are auxiliary to the main checkpoint -> continue flow and must not redefine the main product semantics:
 
-- `checkpoint-create`
 - `nodes`
 - `checkout`
 - `branch`
@@ -218,8 +219,11 @@ openclaw steprollback <command> [flags]
 
 Common requirements:
 
-- human-readable output by default
-- support `--json`
+- `openclaw steprollback --help` must show an overview of all registered subcommands and flags
+- `openclaw steprollback <command> --help` remains the command-specific help path
+- most commands default to human-readable tables or field/value output
+- `status` currently returns pretty-printed JSON directly without a separate `--json` flag
+- commands that declare `--json` must support it
 - stable error codes for all write commands
 - atomic or cleanable failure behavior for all write commands
 - plugin commands only appear after `openclaw.json` passes current schema validation
@@ -233,22 +237,21 @@ Common requirements:
 Purpose:
 
 - show whether the plugin is enabled
-- show whether key directories are configured
-- show whether git is available
+- show whether the runtime is gateway-mode-only
+- show whether continue prompts are allowed
 
 Command:
 
 ```bash
-openclaw steprollback status [--json]
+openclaw steprollback status
 ```
 
 Suggested output fields:
 
 - `pluginId`
 - `enabled`
-- `gitAvailable`
-- `configExists`
-- `ready`
+- `gatewayModeOnly`
+- `allowContinuePrompt`
 
 ### 8.3 `setup`
 
@@ -265,22 +268,9 @@ openclaw steprollback setup [--base-dir <path>] [--dry-run] [--json]
 
 Behavior:
 
-- validate git availability
 - create default directories
 - write `plugins.entries.step-rollback`
 - return `restartRequired`
-
-### 8.4 `startup`
-
-Command:
-
-```bash
-openclaw steprollback startup [--base-dir <path>] [--dry-run] [--json]
-```
-
-Behavior:
-
-- identical to `setup`
 
 ### 8.5 `agents`
 
@@ -429,6 +419,7 @@ openclaw steprollback continue \
   --prompt "..." \
   [--new-agent <new-agent-id>] \
   [--clone-auth auto|always|never] \
+  [--log] \
   [--json]
 ```
 
@@ -481,31 +472,93 @@ Failure cases must include at least:
 - `ERR_SESSION_REBUILD_FAILED`
 - `ERR_CONFIG_WRITE_FAILED`
 
-### 8.12 `doctor`
+### 8.12 `nodes`
 
 Command:
 
 ```bash
-openclaw steprollback doctor [--json]
+openclaw steprollback nodes --agent <agentId> --session <sessionId> [--json]
 ```
 
 Purpose:
 
-- check git, directories, index files, and config consistency
+- list checkpoint-backed nodes that can be used with `checkout`
 
-### 8.13 `gc`
+Suggested output fields:
+
+- `entryId`
+- `nodeIndex`
+- `toolName`
+- `checkoutAvailable`
+- `createdAt`
+
+### 8.13 `checkout`
 
 Command:
 
 ```bash
-openclaw steprollback gc [--dry-run] [--json]
+openclaw steprollback checkout \
+  --agent <agentId> \
+  --source-session <sessionId> \
+  --entry <entryId> \
+  [--continue] \
+  [--prompt "..."] \
+  [--json]
 ```
 
 Purpose:
 
-- clean old checkpoints
-- clean invalid records
-- run git gc
+- create a new session from a checkpoint-backed entry
+- optionally continue immediately when `--continue` is provided
+
+Suggested output fields:
+
+- `branchId`
+- `newSessionId`
+- `newSessionKey`
+- `continued`
+- `usedPrompt`
+
+### 8.14 `report`
+
+Command:
+
+```bash
+openclaw steprollback report --rollback <rollbackId> [--json]
+```
+
+Purpose:
+
+- show one rollback report by id
+
+Suggested output fields:
+
+- `rollbackId`
+- `result`
+- `message`
+- `checkpointId`
+- `createdAt`
+
+### 8.15 `branch`
+
+Command:
+
+```bash
+openclaw steprollback branch --branch <branchId> [--json]
+```
+
+Purpose:
+
+- show one checkout branch record by id
+
+Suggested output fields:
+
+- `branchId`
+- `sourceAgentId`
+- `sourceSessionId`
+- `sourceEntryId`
+- `newSessionId`
+- `createdAt`
 
 ## 9. Data Models
 
@@ -640,6 +693,7 @@ checkpoint selected
 ## 15. Acceptance Criteria
 
 - state-changing tool calls automatically create checkpoints, while read-only calls do not create checkpoints or new agents
+- `openclaw steprollback --help` shows the registered command and flag overview
 - `checkpoints` shows automatically created checkpoints
 - `rollback` only restores the source side and does not create forks
 - `continue` without `--prompt` must fail

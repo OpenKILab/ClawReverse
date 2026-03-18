@@ -5,8 +5,8 @@
 `SecureStepClaw` 是一个面向 OpenClaw 的 `step-rollback` Native Plugin 项目。它的目标语义是：
 
 - 只有会改变状态的 tool call 才应创建 checkpoint；只读调用应跳过
-- `rollback` 只做 source 侧原地恢复
-- `continue` 必须带 `--prompt`，并且基于 checkpoint fork 出新的 workspace、新的 agent、新的 session
+- `rollback` 默认不改写 parent workspace，只有显式要求时才原地恢复 workspace
+- `continue` 必须带 `--prompt`，并且基于 checkpoint 创建新的 session；默认优先复用最新 child agent，必要时或显式要求时再创建新的 child agent / workspace
 
 ## 当前说明
 
@@ -43,7 +43,11 @@ checkpoint 只负责快照，不负责分支。
 
 ### Rollback
 
-`rollback` 的职责是把 source session / source workspace 恢复到指定 checkpoint。
+`rollback` 的职责是把 source session 回退到指定 checkpoint。
+
+默认情况下，它不应改写 parent workspace。
+
+只有调用方显式要求时，`rollback` 才可以把 source workspace 原地恢复到指定 checkpoint。
 
 `rollback` 不会：
 
@@ -59,14 +63,13 @@ checkpoint 只负责快照，不负责分支。
 
 - 必须带 `--prompt`
 - 必须指定 checkpoint
-- 必须创建新 workspace
-- 必须创建新 agent
+- 每次都必须创建新的 child agent 和 workspace
 - 必须创建新 session
 
 continue 创建的 child 分支来源如下：
 
-- 新 workspace：来自 checkpoint 对应文件快照
-- 新 agent：复制 parent agent 的必要配置信息
+- target workspace：来自 checkpoint 对应文件快照
+- target agent：总是新建，并复制必要的 parent agent 配置
 - 新 session：基于 checkpoint 对应的 session 历史前缀重建，并使用新的 session 名称 / id
 - 新 prompt：作为 child session 的下一条输入
 - child 执行：在还原好 checkpoint prefix 之后，通过标准的 `openclaw agent --agent <child-agent> --session-id <child-session> --message "..."` 路径继续
@@ -148,6 +151,12 @@ openclaw plugins doctor
 
 ## 主要命令
 
+先用下面这个命令查看完整的 Step Rollback CLI 总览：
+
+```bash
+openclaw steprollback --help
+```
+
 ### 读命令
 
 ```bash
@@ -157,17 +166,18 @@ openclaw steprollback sessions --agent <agentId>
 openclaw steprollback checkpoints --agent <agentId> --session <sessionId>
 openclaw steprollback checkpoint --checkpoint <checkpointId>
 openclaw steprollback rollback-status --agent <agentId> --session <sessionId>
-openclaw steprollback doctor
+openclaw steprollback nodes --agent <agentId> --session <sessionId>
+openclaw steprollback report --rollback <rollbackId>
+openclaw steprollback branch --branch <branchId>
 ```
 
 ### 写命令
 
 ```bash
 openclaw steprollback setup
-openclaw steprollback startup
-openclaw steprollback rollback --agent <agentId> --session <sessionId> --checkpoint <checkpointId>
-openclaw steprollback continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt "..."
-openclaw steprollback gc [--dry-run]
+openclaw steprollback rollback --agent <agentId> --session <sessionId> --checkpoint <checkpointId> [--restore-workspace]
+openclaw steprollback continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt "..." [--new-agent <agentId>] [--clone-auth <mode>] [--log]
+openclaw steprollback checkout --agent <agentId> --source-session <sessionId> --entry <entryId> [--continue] [--prompt "..."]
 ```
 
 ## 主流程
@@ -198,11 +208,25 @@ openclaw steprollback checkpoint --checkpoint <checkpoint-id>
 
 ### 4. 可选：rollback 做原地恢复
 
+默认情况下，`rollback` 只会把插件 / 运行时游标回退到指定 checkpoint，不会直接改写 parent workspace。只有显式传入 `--restore-workspace` 时，才会原地恢复 parent workspace。
+
+只回退状态，不改动 parent workspace：
+
 ```bash
 openclaw steprollback rollback \
   --agent main \
   --session <session-id> \
   --checkpoint <checkpoint-id>
+```
+
+回退状态，并原地恢复 parent workspace：
+
+```bash
+openclaw steprollback rollback \
+  --agent main \
+  --session <session-id> \
+  --checkpoint <checkpoint-id> \
+  --restore-workspace
 ```
 
 然后查看状态：
@@ -215,6 +239,15 @@ openclaw steprollback rollback-status --agent main --session <session-id>
 
 ### 5. continue fork 新 agent
 
+`continue` 会基于 checkpoint 总是创建一个新的 agent、workspace 和 session。
+
+agent 创建规则如下：
+
+- 总是创建新的 child agent / workspace
+- `--new-agent <agentId>` 可以在新建时指定 child agent 名称
+
+按默认命名继续：
+
 ```bash
 openclaw steprollback continue \
   --agent main \
@@ -223,11 +256,24 @@ openclaw steprollback continue \
   --prompt "继续这个历史点，但尝试不同方案"
 ```
 
-这个命令应创建：
+继续并显式命名新的 child agent：
 
+```bash
+openclaw steprollback continue \
+  --agent main \
+  --session <session-id> \
+  --checkpoint <checkpoint-id> \
+  --prompt "继续这个历史点，但放到一个全新的 child 里。" \
+  --new-agent main-cp-0004
+```
+
+如果 child 启动看起来异常或像是卡住了，可以加上 `--log` 重试。插件会打印额外诊断信息，并返回 `logFilePath` 指向 runtime 目录下的 child 进程日志。
+
+这个命令一定会创建：
+
+- 新 session
 - 新 workspace
 - 新 agent
-- 新 session
 
 并返回类似字段：
 
@@ -248,6 +294,18 @@ openclaw steprollback continue \
 - `--prompt` 是 continue 的必填参数
 - continue 的目的是 fork，不是原地续跑 parent agent
 - child workspace 和 child session 准备好之后，应通过标准 `openclaw agent` message 路径继续执行
+
+## 其他查看与 checkout 命令
+
+这些命令适合和主流程 checkpoint -> rollback / continue 搭配使用：
+
+```bash
+openclaw steprollback nodes --agent main --session <session-id>
+openclaw steprollback checkout --agent main --source-session <session-id> --entry <entry-id>
+openclaw steprollback checkout --agent main --source-session <session-id> --entry <entry-id> --continue --prompt "从这个 entry 继续。"
+openclaw steprollback report --rollback <rollback-id>
+openclaw steprollback branch --branch <branch-id>
+```
 
 ## continue 复制什么
 
@@ -286,19 +344,15 @@ Git shadow snapshots 应与用户真实项目仓库隔离。
 
 ## 当前代码状态说明
 
-这个仓库已经覆盖的核心方向包括：
+这个仓库当前已经提供：
 
 - 会改变状态的 tool call 自动 checkpoint
 - checkpoint 查询
-- rollback 基础能力
-- continue / 分支能力的基础实现
+- source 侧 rollback 恢复能力
+- 基于全新 child agent / session 的 continue 与分支能力
+- checkpoint-backed node 列表、checkout、rollback report、branch 查看能力
 
 当前 native bridge 会优先使用官方文档里标准的 `openclaw agent --message` 续跑路径，runtime helper 或 Gateway helper 只作为兼容性回退方案。
-
-因此，请把这份 README 理解为：
-
-- 这是本项目希望稳定收敛到的目标命令语义
-- 如果某个实现细节与你本地运行结果不一致，应以这份语义为后续代码调整方向
 
 ## 验证
 
@@ -307,5 +361,3 @@ Git shadow snapshots 应与用户真实项目仓库隔离。
 ```bash
 npm test
 ```
-
-这次文档改写没有修改代码。

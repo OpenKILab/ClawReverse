@@ -902,6 +902,9 @@ export async function writeForkedSessionState(api, options = {}) {
   const targetTranscriptPath = resolveSessionTranscriptPath(api, targetAgentId, targetSessionId);
   const sourceTranscriptPath = resolveSessionTranscriptPath(api, sourceAgentId, sourceSessionId);
   const sourceState = await readSessionIndexState(api, sourceAgentId);
+  const targetState = options.preserveExistingSessions
+    ? await readSessionIndexState(api, targetAgentId)
+    : null;
   const sourceMatch = findRawSessionIndexEntry(sourceState.contents, {
     sessionId: sourceSessionId,
     sessionKey: options.sourceSessionKey
@@ -921,11 +924,35 @@ export async function writeForkedSessionState(api, options = {}) {
     label: options.label,
     forceSessionKeyField: Array.isArray(sourceState.contents)
   });
-  const nextContents = Array.isArray(sourceState.contents)
-    ? [nextRecord]
-    : {
-      [targetSessionKey]: nextRecord
+  let nextContents;
+
+  if (options.preserveExistingSessions && Array.isArray(targetState?.contents)) {
+    nextContents = [
+      ...targetState.contents.filter((entry) => {
+        const entrySessionId = pickNonEmptyString(entry?.sessionId, entry?.id);
+        const entrySessionKey = pickNonEmptyString(entry?.sessionKey, entry?.key);
+        return entrySessionId !== targetSessionId && entrySessionKey !== targetSessionKey;
+      }),
+      nextRecord
+    ];
+  } else if (options.preserveExistingSessions && targetState?.contents && typeof targetState.contents === "object") {
+    const currentEntries = targetState.contents;
+    nextContents = {
+      ...currentEntries,
+      [targetSessionKey]: {
+        ...(currentEntries[targetSessionKey] && typeof currentEntries[targetSessionKey] === "object"
+          ? currentEntries[targetSessionKey]
+          : {}),
+        ...nextRecord
+      }
     };
+  } else {
+    nextContents = Array.isArray(sourceState.contents)
+      ? [nextRecord]
+      : {
+        [targetSessionKey]: nextRecord
+      };
+  }
   const targetSessionIndexPath = resolveSessionIndexPath(api, targetAgentId);
 
   await writeSessionIndexState(targetSessionIndexPath, nextContents);

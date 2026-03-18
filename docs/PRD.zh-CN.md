@@ -118,12 +118,12 @@ P0 提供以下核心能力：
 - rollback 状态查询
 - continue 基于 checkpoint fork 新 workspace / 新 agent / 新 session
 - agent / session 查询
-- doctor / gc 等基础运维能力
-- 所有命令支持人类可读输出与 `--json`
+- checkpoint-backed node / checkout / report / branch 命令
+- 提供根级 `openclaw steprollback --help` 总览，以及对声明了 `--json` 的命令提供 JSON 输出
 
 ### 4.2 P1 目标
 
-- retention / prune / gc 策略增强
+- retention / prune 策略增强
 - 更完整的 lineage 展示
 - group / topic / custom session 支持增强
 - sandbox workspace 支持增强
@@ -146,24 +146,25 @@ P0 不包含以下内容：
 
 | 命令 | 类型 | 语义 |
 | --- | --- | --- |
-| `openclaw steprollback status` | 读 | 查看插件状态与运行前提 |
+| `openclaw steprollback --help` | 读 | 查看全部已注册命令与 flags 总览 |
 | `openclaw steprollback setup` | 写 | 初始化插件目录与配置 |
-| `openclaw steprollback startup` | 写 | `setup` 别名 |
+| `openclaw steprollback status` | 读 | 查看插件状态与运行时标记 |
 | `openclaw steprollback agents` | 读 | 查看 agent 摘要 |
 | `openclaw steprollback sessions --agent <agentId>` | 读 | 查看某个 agent 下的 session |
 | `openclaw steprollback checkpoints --agent <agentId> --session <sessionId>` | 读 | 查看某个 session 的 checkpoint 列表 |
 | `openclaw steprollback checkpoint --checkpoint <checkpointId>` | 读 | 查看单个 checkpoint 详情 |
 | `openclaw steprollback rollback --agent <agentId> --session <sessionId> --checkpoint <checkpointId>` | 写 | 将 source session / workspace 原地恢复到某个 checkpoint |
 | `openclaw steprollback rollback-status --agent <agentId> --session <sessionId>` | 读 | 查看 rollback 状态 |
-| `openclaw steprollback continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt \"...\"` | 写 | 基于 checkpoint fork 新 workspace / 新 agent / 新 session |
-| `openclaw steprollback doctor` | 读 | 做健康检查 |
-| `openclaw steprollback gc [--dry-run]` | 写 | 做清理和回收 |
+| `openclaw steprollback continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt \"...\" [--new-agent <agentId>] [--clone-auth <mode>] [--log]` | 写 | 基于 checkpoint fork 新 workspace / 新 agent / 新 session |
+| `openclaw steprollback nodes --agent <agentId> --session <sessionId>` | 读 | 列出可 checkout 的 checkpoint-backed node |
+| `openclaw steprollback checkout --agent <agentId> --source-session <sessionId> --entry <entryId> [--continue] [--prompt \"...\"]` | 写 | 基于 checkpoint-backed entry 创建新 session |
+| `openclaw steprollback report --rollback <rollbackId>` | 读 | 查看 rollback report |
+| `openclaw steprollback branch --branch <branchId>` | 读 | 查看 checkout branch 记录 |
 
 ### 6.2 辅助命令
 
-以下命令如果保留，属于辅助或高级能力，不应改变主语义：
+以下命令属于主流程 checkpoint -> continue 之外的辅助能力，不应改变主语义：
 
-- `checkpoint-create`
 - `nodes`
 - `checkout`
 - `branch`
@@ -218,8 +219,11 @@ openclaw steprollback <command> [flags]
 
 通用要求：
 
-- 默认输出人类可读文本
-- 支持 `--json`
+- `openclaw steprollback --help` 必须输出全部已注册子命令与 flags 总览
+- `openclaw steprollback <command> --help` 继续作为单个命令的帮助入口
+- 大多数命令默认输出人类可读的表格或字段视图
+- `status` 当前直接输出格式化 JSON，不单独提供 `--json` flag
+- 只有声明了 `--json` 的命令才要求支持 `--json`
 - 写命令必须返回稳定错误码
 - 写命令必须具备原子性或可清理的失败策略
 - 只有当 `openclaw.json` 通过当前 schema 校验后，插件命令才会出现
@@ -233,22 +237,21 @@ openclaw steprollback <command> [flags]
 用途：
 
 - 查看插件是否启用
-- 查看关键目录是否已配置
-- 查看 git 是否可用
+- 查看运行时是否仅支持 gateway mode
+- 查看是否允许 continue prompt
 
 命令：
 
 ```bash
-openclaw steprollback status [--json]
+openclaw steprollback status
 ```
 
 建议输出字段：
 
 - `pluginId`
 - `enabled`
-- `gitAvailable`
-- `configExists`
-- `ready`
+- `gatewayModeOnly`
+- `allowContinuePrompt`
 
 ### 8.3 `setup`
 
@@ -265,22 +268,9 @@ openclaw steprollback setup [--base-dir <path>] [--dry-run] [--json]
 
 行为：
 
-- 校验 git 可用
 - 创建默认目录
 - 写入 `plugins.entries.step-rollback`
 - 返回 `restartRequired`
-
-### 8.4 `startup`
-
-命令：
-
-```bash
-openclaw steprollback startup [--base-dir <path>] [--dry-run] [--json]
-```
-
-行为：
-
-- 与 `setup` 完全一致
 
 ### 8.5 `agents`
 
@@ -429,6 +419,7 @@ openclaw steprollback continue \
   --prompt "..." \
   [--new-agent <new-agent-id>] \
   [--clone-auth auto|always|never] \
+  [--log] \
   [--json]
 ```
 
@@ -481,31 +472,93 @@ openclaw steprollback continue \
 - `ERR_SESSION_REBUILD_FAILED`
 - `ERR_CONFIG_WRITE_FAILED`
 
-### 8.12 `doctor`
+### 8.12 `nodes`
 
 命令：
 
 ```bash
-openclaw steprollback doctor [--json]
+openclaw steprollback nodes --agent <agentId> --session <sessionId> [--json]
 ```
 
 用途：
 
-- 检查 git、目录、索引、配置一致性
+- 列出可用于 `checkout` 的 checkpoint-backed node
 
-### 8.13 `gc`
+建议输出字段：
+
+- `entryId`
+- `nodeIndex`
+- `toolName`
+- `checkoutAvailable`
+- `createdAt`
+
+### 8.13 `checkout`
 
 命令：
 
 ```bash
-openclaw steprollback gc [--dry-run] [--json]
+openclaw steprollback checkout \
+  --agent <agentId> \
+  --source-session <sessionId> \
+  --entry <entryId> \
+  [--continue] \
+  [--prompt "..."] \
+  [--json]
 ```
 
 用途：
 
-- 清理旧 checkpoint
-- 清理失效记录
-- 执行 git gc
+- 基于 checkpoint-backed entry 创建一个新的 session
+- 在传入 `--continue` 时可以立即继续执行
+
+建议输出字段：
+
+- `branchId`
+- `newSessionId`
+- `newSessionKey`
+- `continued`
+- `usedPrompt`
+
+### 8.14 `report`
+
+命令：
+
+```bash
+openclaw steprollback report --rollback <rollbackId> [--json]
+```
+
+用途：
+
+- 按 id 查看单个 rollback report
+
+建议输出字段：
+
+- `rollbackId`
+- `result`
+- `message`
+- `checkpointId`
+- `createdAt`
+
+### 8.15 `branch`
+
+命令：
+
+```bash
+openclaw steprollback branch --branch <branchId> [--json]
+```
+
+用途：
+
+- 按 id 查看单个 checkout branch 记录
+
+建议输出字段：
+
+- `branchId`
+- `sourceAgentId`
+- `sourceSessionId`
+- `sourceEntryId`
+- `newSessionId`
+- `createdAt`
 
 ## 9. 数据模型
 
@@ -640,6 +693,7 @@ checkpoint selected
 ## 15. 验收标准
 
 - 会改变状态的 tool call 发生时自动创建 checkpoint；只读调用既不创建 checkpoint，也不创建新 agent
+- `openclaw steprollback --help` 可以看到已注册命令与 flags 总览
 - 执行 `checkpoints` 可以看到自动创建的 checkpoint
 - 执行 `rollback` 时只恢复 source，不创建 fork
 - 执行 `continue` 时若没有 `--prompt` 必须失败

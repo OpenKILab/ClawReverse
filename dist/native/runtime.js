@@ -105,6 +105,15 @@ function resolveForkWorkspacePath(config, agentId) {
   return path.join(resolvePluginStateRoot(config), "workspaces", agentId);
 }
 
+function resolveContinueLogFilePath(config, agentId, branchId) {
+  const runtimeDir = config?.runtimeDir ?? path.join(resolvePluginStateRoot(config), "runtime");
+  return path.join(
+    runtimeDir,
+    "logs",
+    `continue-${sanitizeAgentToken(agentId, "agent")}-${sanitizeAgentToken(branchId, "continue")}.log`
+  );
+}
+
 function resolveAgentRootDirectory(agentId) {
   return path.join(resolveOpenClawStateDir(), "agents", agentId);
 }
@@ -332,9 +341,14 @@ function repairConfiguredAgentEntries(entries, defaultsEntry) {
   };
 }
 
-function resolveParentAgentEntry(api, agentId) {
-  const normalizedAgentId = normalizeAgentIdInput(api, agentId);
-  const agentsConfig = api?.config?.agents;
+function resolveAgentsConfig(api, configDocument = null) {
+  return configDocument?.agents ?? api?.config?.agents;
+}
+
+function resolveParentAgentEntry(api, agentId, configDocument = null) {
+  const configApi = configDocument ? { config: configDocument } : api;
+  const normalizedAgentId = normalizeAgentIdInput(configApi, agentId);
+  const agentsConfig = resolveAgentsConfig(api, configDocument);
 
   if (Array.isArray(agentsConfig?.list)) {
     const match = agentsConfig.list.find((entry) => entry && typeof entry === "object" && entry.id === normalizedAgentId);
@@ -355,7 +369,7 @@ function resolveParentAgentEntry(api, agentId) {
       return { entry: agentsConfig[normalizedAgentId], shape: "object" };
     }
 
-    const defaultAgentId = normalizeAgentIdInput(api, "default");
+    const defaultAgentId = normalizeAgentIdInput(configApi, "default");
     if (normalizedAgentId === defaultAgentId && agentsConfig.defaults && typeof agentsConfig.defaults === "object") {
       return { entry: agentsConfig.defaults, shape: "defaults" };
     }
@@ -386,6 +400,28 @@ function collectLegacyAgentEntries(agentsConfig) {
       ...value,
       id: typeof value.id === "string" && value.id.trim() ? value.id : key
     }));
+}
+
+function resolveContinueNewAgentId(api, configDocument, sourceAgentId, newAgentId) {
+  const configApi = configDocument ? { config: configDocument } : api;
+  const normalizedSourceAgentId = normalizeAgentIdInput(configApi, sourceAgentId);
+  const requestedNewAgentId = pickNonEmptyString(newAgentId);
+
+  if (!requestedNewAgentId) {
+    return null;
+  }
+
+  const normalizedNewAgentId = normalizeAgentIdInput(configApi, requestedNewAgentId);
+
+  if (normalizedNewAgentId === normalizedSourceAgentId) {
+    throw new StepRollbackError(
+      "CONTINUE_TARGET_CONFLICT",
+      `New agent '${normalizedNewAgentId}' cannot be the same as the source agent.`,
+      { sourceAgentId: normalizedSourceAgentId, newAgentId: normalizedNewAgentId }
+    );
+  }
+
+  return normalizedNewAgentId;
 }
 
 function hasConfiguredAgent(api, configDocument, agentId) {
@@ -580,7 +616,7 @@ export function createNativeHostBridge(api, logger, options = {}) {
       };
     },
 
-    async startContinueRun({ agentId, sessionId, sessionKey, entryId, prompt, sourceSessionId, branchId, label }) {
+    async startContinueRun({ agentId, sessionId, sessionKey, entryId, prompt, sourceSessionId, branchId, label, log = false }) {
       const knownSession = await resolveSessionRecord(api, agentId, {
         sessionId,
         sessionKey
@@ -589,16 +625,36 @@ export function createNativeHostBridge(api, logger, options = {}) {
       const targetSessionId = sessionId ?? knownSession?.sessionId;
       const syntheticMessage = prompt?.trim() || "Continue from the restored checkpoint.";
       const branchLabel = label ?? buildBranchSessionLabel(sourceSessionId ?? targetSessionId ?? "session", branchId ?? "continue");
+      const configDocument = await readJson(resolveOpenClawConfigPath(), api?.config ?? {});
+      const targetAgent = resolveParentAgentEntry(api, agentId, configDocument);
+      const cliCwd = pickNonEmptyString(
+        resolveConfiguredWorkspace(targetAgent.entry),
+        options.cliCwd,
+        resolvedPluginConfig.workspaceRoots[0]
+      );
+      const logFilePath = log
+        ? resolveContinueLogFilePath(resolvedPluginConfig, agentId, branchId ?? targetSessionId ?? crypto.randomUUID())
+        : "";
+
+      if (log) {
+        logger.info?.(
+          `[${manifest.id}] continue diagnostics agent='${agentId}' session='${targetSessionId || "-"}' sessionKey='${targetSessionKey || "-"}' cwd='${cliCwd || "-"}' logFile='${logFilePath || "-"}'`
+        );
+      }
 
       try {
         return await invokeAgentViaCli(api, logger, {
           ...options,
           agentId,
           sessionId: targetSessionId,
+          sessionKey: targetSessionKey,
           prompt: syntheticMessage,
           sourceSessionId: sourceSessionId ?? targetSessionId,
           branchId,
-          label: branchLabel
+          label: branchLabel,
+          cliCwd,
+          log,
+          logFilePath
         });
       } catch (error) {
         logger.warn?.(
@@ -711,7 +767,7 @@ export function createNativeHostBridge(api, logger, options = {}) {
       };
     },
 
-    async forkContinue({ sourceAgentId, sourceSessionId, checkpoint, prompt, newAgentId, cloneAuth, branchId }) {
+    async forkContinue({ sourceAgentId, sourceSessionId, checkpoint, prompt, newAgentId, cloneAuth, branchId, log = false }) {
       const engine = getEngine();
       if (!engine?.services?.checkpointManager) {
         throw new StepRollbackError(
@@ -721,16 +777,10 @@ export function createNativeHostBridge(api, logger, options = {}) {
         );
       }
 
-      const childAgentId = sanitizeAgentToken(
-        pickNonEmptyString(newAgentId) || `${sourceAgentId}-cp-${String(branchId ?? crypto.randomUUID()).slice(-4)}`,
-        "agent"
-      );
       const configPath = resolveOpenClawConfigPath();
       const configDocument = await readJson(configPath, api?.config ?? {});
-      const parentAgent = resolveParentAgentEntry(api, sourceAgentId);
-      const childWorkspacePath = resolveForkWorkspacePath(resolvedPluginConfig, childAgentId);
+      const parentAgent = resolveParentAgentEntry(api, sourceAgentId, configDocument);
       const childSessionId = crypto.randomUUID();
-      const childSessionKey = buildAgentSessionKey(childAgentId);
       const childLabel = buildBranchSessionLabel(sourceSessionId, branchId ?? "continue");
       const transcriptPrefix = await loadCheckpointTranscriptPrefix(api, checkpoint);
       const sourceWorkspacePath = pickNonEmptyString(
@@ -738,19 +788,40 @@ export function createNativeHostBridge(api, logger, options = {}) {
         resolveConfiguredWorkspace(parentAgent.entry),
         engine.config.workspaceRoots[0]
       );
-      const {
-        sourceAgentRootDir,
-        sourceAgentDir,
-        childAgentRootDir,
-        childAgentDir,
-        relativeAgentDir
-      } = await resolveForkAgentStorage(sourceAgentId, parentAgent.entry, childAgentId);
+      const requestedNewAgentId = resolveContinueNewAgentId(api, configDocument, sourceAgentId, newAgentId);
+      const createdNewAgent = true;
+      const childAgentId = sanitizeAgentToken(
+        requestedNewAgentId || `${sourceAgentId}-cp-${String(branchId ?? crypto.randomUUID()).slice(-4)}`,
+        "agent"
+      );
+      const childWorkspacePath = resolveForkWorkspacePath(resolvedPluginConfig, childAgentId);
+      const childSessionKey = buildAgentSessionKey(childAgentId);
+      const sourceAgentStorage = await resolveForkAgentStorage(sourceAgentId, parentAgent.entry, childAgentId);
+      const childAgentRootDir = sourceAgentStorage.childAgentRootDir;
+      const childAgentDir = sourceAgentStorage.childAgentDir;
+      const relativeAgentDir = sourceAgentStorage.relativeAgentDir;
+      const logFilePath = log
+        ? resolveContinueLogFilePath(resolvedPluginConfig, childAgentId, branchId ?? childSessionId)
+        : "";
       let configWritten = false;
 
       if (hasConfiguredAgent(api, configDocument, childAgentId)) {
         throw new StepRollbackError(
           "ERR_AGENT_ALREADY_EXISTS",
           `Agent '${childAgentId}' already exists.`,
+          {
+            sourceAgentId,
+            sourceSessionId,
+            checkpointId: checkpoint?.checkpointId,
+            newAgentId: childAgentId
+          }
+        );
+      }
+
+      if (!childWorkspacePath) {
+        throw new StepRollbackError(
+          "ERR_WORKSPACE_MATERIALIZE_FAILED",
+          `Agent '${childAgentId}' does not have a configured workspace.`,
           {
             sourceAgentId,
             sourceSessionId,
@@ -790,8 +861,8 @@ export function createNativeHostBridge(api, logger, options = {}) {
 
       try {
         await seedForkedAgentDirectory({
-          sourceAgentDir,
-          sourceAgentRootDir,
+          sourceAgentDir: sourceAgentStorage.sourceAgentDir,
+          sourceAgentRootDir: sourceAgentStorage.sourceAgentRootDir,
           childAgentDir,
           childAgentRootDir,
           relativeAgentDir
@@ -827,7 +898,8 @@ export function createNativeHostBridge(api, logger, options = {}) {
           targetSessionKey: childSessionKey,
           sourceWorkspacePath,
           targetWorkspacePath: childWorkspacePath,
-          label: childLabel
+          label: childLabel,
+          preserveExistingSessions: false
         });
 
         const childAgentEntry = cloneAgentEntryForFork(parentAgent.entry, {
@@ -842,6 +914,12 @@ export function createNativeHostBridge(api, logger, options = {}) {
         syncApiConfig(api, nextConfig);
         configWritten = true;
 
+        if (log) {
+          logger.info?.(
+            `[${manifest.id}] continue diagnostics sourceAgent='${sourceAgentId}' sourceSession='${sourceSessionId}' childAgent='${childAgentId}' childSession='${childSessionId}' sourceWorkspace='${sourceWorkspacePath}' childWorkspace='${childWorkspacePath}' childAgentDir='${childAgentDir}' logFile='${logFilePath || "-"}'`
+          );
+        }
+
         let runResult = null;
 
         try {
@@ -849,7 +927,13 @@ export function createNativeHostBridge(api, logger, options = {}) {
             ...options,
             agentId: childAgentId,
             sessionId: childSessionId,
-            prompt
+            sessionKey: childSessionKey,
+            prompt,
+            sourceSessionId,
+            label: childLabel,
+            cliCwd: childWorkspacePath,
+            log,
+            logFilePath
           });
         } catch (error) {
           logger.warn?.(
@@ -884,7 +968,9 @@ export function createNativeHostBridge(api, logger, options = {}) {
           newWorkspacePath: childWorkspacePath,
           newAgentDir: childAgentDir,
           newSessionId: runResult?.sessionId ?? childSessionId,
-          newSessionKey: runResult?.sessionKey ?? childSessionKey
+          newSessionKey: runResult?.sessionKey ?? childSessionKey,
+          createdNewAgent,
+          logFilePath: runResult?.logFilePath ?? (logFilePath || null)
         };
       } catch (error) {
         if (!configWritten) {

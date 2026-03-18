@@ -67,7 +67,11 @@ function createFakeProgram() {
   function createCommand(pathParts) {
     const record = {
       path: pathParts.join(" "),
-      action: null
+      action: null,
+      descriptionText: "",
+      options: [],
+      helpTexts: {},
+      events: new Map()
     };
 
     if (record.path) {
@@ -78,13 +82,35 @@ function createFakeProgram() {
       command(name) {
         return createCommand([...pathParts, name]);
       },
-      description() {
+      description(text) {
+        record.descriptionText = text ?? "";
         return this;
       },
-      option() {
+      option(flags, description) {
+        record.options.push({
+          flags,
+          description,
+          required: false
+        });
         return this;
       },
-      requiredOption() {
+      requiredOption(flags, description) {
+        record.options.push({
+          flags,
+          description,
+          required: true
+        });
+        return this;
+      },
+      addHelpText(position, text) {
+        record.helpTexts[position] = [
+          ...(record.helpTexts[position] ?? []),
+          text
+        ];
+        return this;
+      },
+      on(eventName, handler) {
+        record.events.set(eventName, handler);
         return this;
       },
       action(handler) {
@@ -163,7 +189,26 @@ async function withTempEnv(entries, fn) {
   }
 }
 
-test("creates checkpoints, rolls back workspace state, and continues from the checkpoint", async () => {
+async function waitForFile(filePath, attempts = 80, delayMs = 50) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await fs.access(filePath);
+      return filePath;
+    } catch (error) {
+      if (attempt === attempts - 1) {
+        throw error;
+      }
+    }
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
+  }
+
+  return filePath;
+}
+
+test("creates checkpoints, keeps workspace untouched on rollback by default, and continues from the checkpoint", async () => {
   const fixture = await createFixture();
   const calls = {
     stopRun: [],
@@ -247,8 +292,9 @@ test("creates checkpoints, rolls back workspace state, and continues from the ch
   });
 
   assert.equal(rollbackResponse.result, "success");
+  assert.equal(rollbackResponse.restoredWorkspace, false);
   assert.equal(rollbackResponse.awaitingContinue, false);
-  assert.equal(await fs.readFile(path.join(fixture.workspace, "app.txt"), "utf8"), "v1\n");
+  assert.equal(await fs.readFile(path.join(fixture.workspace, "app.txt"), "utf8"), "broken\n");
   assert.equal(calls.stopRun.length, 1);
 
   const rollbackStatus = await plugin.methods["steprollback.rollback.status"]({
@@ -816,11 +862,13 @@ test("registers a native OpenClaw plugin and drives rollback through registered 
       params: {
         agentId: "main",
         sessionId: "native-session",
-        checkpointId
+        checkpointId,
+        restoreWorkspace: true
       }
     });
 
     assert.equal(rollbackResponse.result, "success");
+    assert.equal(rollbackResponse.restoredWorkspace, true);
     assert.equal(await fs.readFile(path.join(fixture.workspace, "native.txt"), "utf8"), "safe\n");
     assert.equal(
       gatewayCalls.some((call) => call.method === "agent" && call.params.message === "/stop"),
@@ -846,7 +894,7 @@ test("registers a native OpenClaw plugin and drives rollback through registered 
           call.sessionKey === continueResponse.newSessionKey &&
           call.message === "Inspect the checkpoint before changing anything." &&
           call.deliver === false
-      ),
+      ) || logs.some((entry) => entry.message.includes("continue launched via")),
       true
     );
 
@@ -1007,6 +1055,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   };
   const cliGatewayCalls = [];
   const cliGatewayBehaviors = [];
+  const continueCalls = [];
   const sessionStoreTemplate = path.join(fixture.root, "agents", "{agentId}", "sessions", "sessions.json");
   const sessionStorePath = sessionStoreTemplate.replace("{agentId}", "main");
   const toolCallId = "chatcmpl-tool-cli";
@@ -1103,15 +1152,18 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
       async stopRun() {
         return { stopped: true, runId: "stop-cli" };
       },
-      async forkContinue({ branchId }) {
+      async forkContinue(input) {
+        continueCalls.push(input);
+        const resolvedAgentId = input.newAgentId ?? "main-cp-cli";
         return {
           started: true,
-          runId: `run:child:${branchId}`,
-          newAgentId: "main-cp-cli",
-          newWorkspacePath: path.join(fixture.root, "forks", "main-cp-cli"),
-          newAgentDir: path.join(fixture.root, "agents", "main-cp-cli"),
+          runId: `run:child:${input.branchId}`,
+          newAgentId: resolvedAgentId,
+          newWorkspacePath: path.join(fixture.root, "forks", resolvedAgentId),
+          newAgentDir: path.join(fixture.root, "agents", resolvedAgentId),
           newSessionId: "session-checkout-cli",
-          newSessionKey: "agent:main-cp-cli:main"
+          newSessionKey: "agent:main-cp-cli:main",
+          createdNewAgent: true
         };
       },
       async createSession() {
@@ -1128,6 +1180,16 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
 
   const cliHarness = createFakeProgram();
   registered.clis[0].factory({ program: cliHarness.program });
+  const rootHelp = cliHarness.commands.get("steprollback").helpTexts.after.join("\n");
+
+  assert.match(rootHelp, /Command overview:/);
+  assert.match(rootHelp, /setup \[--base-dir <path>\] \[--dry-run\] \[--json\]/);
+  assert.match(rootHelp, /status/);
+  assert.match(rootHelp, /continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt <text> \[--new-agent <agentId>\] \[--clone-auth <mode>\] \[--log\] \[--json\]/);
+  assert.match(rootHelp, /checkout --agent <agentId> --source-session <sessionId> --entry <entryId> \[--continue\] \[--prompt <text>\] \[--json\]/);
+  assert.match(rootHelp, /report --rollback <rollbackId> \[--json\]/);
+  assert.match(rootHelp, /branch --branch <branchId> \[--json\]/);
+  assert.match(rootHelp, /openclaw steprollback <command> --help/);
 
   await registered.hooks.get("session_start").handler({
     agentId: "main",
@@ -1185,7 +1247,8 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
     await cliHarness.commands.get("steprollback rollback").action({
       agent: "main",
       session: "session-cli",
-      checkpoint: checkpointId
+      checkpoint: checkpointId,
+      restoreWorkspace: true
     });
   });
   assert.match(rollbackOutput, /rollbackId/);
@@ -1196,7 +1259,8 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
         call.methodName === "steprollback.rollback" &&
         call.params.agentId === "main" &&
         call.params.sessionId === "session-cli" &&
-        call.params.checkpointId === checkpointId
+        call.params.checkpointId === checkpointId &&
+        call.params.restoreWorkspace === true
     ),
     false
   );
@@ -1206,12 +1270,15 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
       agent: "main",
       session: "session-cli",
       checkpoint: checkpointId,
-      prompt: "Inspect first."
+      prompt: "Inspect first.",
+      log: true
     });
   });
   assert.match(continueOutput, /continued/);
   assert.match(continueOutput, /main-cp-cli/);
   assert.match(continueOutput, /session-checkout-cli/);
+  assert.equal(continueCalls.at(-1)?.newAgentId, undefined);
+  assert.equal(continueCalls.at(-1)?.log, true);
   assert.equal(
     cliGatewayCalls.some(
       (call) =>
@@ -1223,6 +1290,18 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
     ),
     false
   );
+
+  const namedContinueOutput = await captureConsoleLog(async () => {
+    await cliHarness.commands.get("steprollback continue").action({
+      agent: "main",
+      session: "session-cli",
+      checkpoint: checkpointId,
+      prompt: "Create a fresh child.",
+      newAgent: "main-cp-forced"
+    });
+  });
+  assert.match(namedContinueOutput, /main-cp-forced/);
+  assert.equal(continueCalls.at(-1)?.newAgentId, "main-cp-forced");
 });
 
 test("falls back to spawned gateway call with auth from config for gateway-delegated CLI commands", async () => {
@@ -1362,7 +1441,7 @@ const fs = require("node:fs/promises");
 
 (async () => {
   const args = process.argv.slice(2);
-  await fs.writeFile(process.env.STEP_ROLLBACK_FAKE_AGENT_CAPTURE, JSON.stringify({ args }, null, 2));
+  await fs.writeFile(process.env.STEP_ROLLBACK_FAKE_AGENT_CAPTURE, JSON.stringify({ args, cwd: process.cwd() }, null, 2));
   process.stdout.write(JSON.stringify({
     runId: "run-branch-agent"
   }));
@@ -1558,14 +1637,16 @@ const fs = require("node:fs/promises");
           agent: "main",
           session: mainSessionId,
           checkpoint: checkpointId,
-          prompt: "Check docs, but do not delete files."
+          prompt: "Check docs, but do not delete files.",
+          log: true
         });
       })
     );
 
     assert.match(output, /continued/);
     assert.match(output, /main-cp-0001/);
-    assert.equal(await fs.readFile(path.join(fixture.workspace, "continue.txt"), "utf8"), "stable\n");
+    assert.match(output, /logFilePath/);
+    assert.equal(await fs.readFile(path.join(fixture.workspace, "continue.txt"), "utf8"), "broken\n");
 
     const childConfig = JSON.parse(await fs.readFile(fixture.configPath, "utf8"));
     const childAgent = childConfig.agents.list.find((entry) => entry.id === "main-cp-0001");
@@ -1614,8 +1695,10 @@ const fs = require("node:fs/promises");
       path.join(childAgent.workspace, "AGENTS.md")
     );
 
+    await waitForFile(fakeAgentCapturePath);
     const capture = JSON.parse(await fs.readFile(fakeAgentCapturePath, "utf8"));
     assert.equal(capture.args[0], "agent");
+    assert.equal(await fs.realpath(capture.cwd), await fs.realpath(childAgent.workspace));
     assert.equal(capture.args.includes("--agent"), true);
     assert.equal(capture.args.includes("main-cp-0001"), true);
     assert.equal(capture.args.includes("--session-id"), true);
@@ -1624,6 +1707,14 @@ const fs = require("node:fs/promises");
     assert.equal(capture.args.includes("--json"), true);
     assert.equal(capture.args.includes("gateway"), false);
     assert.equal(subagentCalls.length, 0);
+
+    const continueLogsDir = path.join(fixture.runtimeDir, "logs");
+    const continueLogFiles = (await fs.readdir(continueLogsDir)).sort();
+    assert.deepEqual(continueLogFiles, ["continue-main-cp-0001-br_0001.log"]);
+    assert.match(
+      await fs.readFile(path.join(continueLogsDir, continueLogFiles[0]), "utf8"),
+      /run-branch-agent/
+    );
   });
 });
 
@@ -1806,6 +1897,7 @@ const fs = require("node:fs/promises");
     assert.equal("compaction" in newChild, false);
     assert.equal("maxConcurrent" in newChild, false);
 
+    await waitForFile(fakeAgentCapturePath);
     const capture = JSON.parse(await fs.readFile(fakeAgentCapturePath, "utf8"));
     assert.equal(capture.args.includes("main-cp-0001"), true);
   });
@@ -2023,6 +2115,7 @@ const fs = require("node:fs/promises");
       "vllm/Intern-S1-Pro": {}
     });
 
+    await waitForFile(fakeAgentCapturePath);
     const capture = JSON.parse(await fs.readFile(fakeAgentCapturePath, "utf8"));
     assert.equal(capture.args.includes("main-cp-0001"), true);
   });

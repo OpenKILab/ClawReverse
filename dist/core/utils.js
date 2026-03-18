@@ -205,7 +205,8 @@ export function createDefaultHostBridge(host = {}) {
       newSessionKey: null,
       checkpointId: checkpoint?.checkpointId ?? null,
       prompt,
-      started: false
+      started: false,
+      createdNewAgent: true
     })),
     createSession: host.createSession ?? (async () => ({
       sessionId: crypto.randomUUID()
