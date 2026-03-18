@@ -3,21 +3,21 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { StepRollbackError } from "../core/errors.js";
-import { ensureDir, nowIso, pathExists, readJson, removePath, resolveAbsolutePath, writeJson } from "../core/utils.js";
+import { copyPath, ensureDir, pathExists, readJson, removePath, resolveAbsolutePath, writeJson } from "../core/utils.js";
 import { manifest } from "../plugin.js";
 import { invokeAgentViaCli } from "./cli.js";
 import {
   buildAgentSessionKey,
   buildBranchSessionKey,
   buildBranchSessionLabel,
+  forkSessionTranscriptEntries,
   normalizeAgentIdInput,
   normalizeExternalParams,
-  readSessionIndexState,
   readSessionTranscriptEntries,
   resolveSessionRecord,
   resolveSessionRecordEventually,
   resolveToolHookContext,
-  upsertSessionRecord,
+  writeForkedSessionState,
   writeSessionTranscriptEntries
 } from "./sessions.js";
 import {
@@ -105,8 +105,80 @@ function resolveForkWorkspacePath(config, agentId) {
   return path.join(resolvePluginStateRoot(config), "workspaces", agentId);
 }
 
-function resolveAgentDirectory(agentId) {
+function resolveAgentRootDirectory(agentId) {
   return path.join(resolveOpenClawStateDir(), "agents", agentId);
+}
+
+async function resolveAgentDirectory(agentId, entry = null) {
+  const configuredAgentDir = pickNonEmptyString(entry?.agentDir);
+
+  if (configuredAgentDir) {
+    return resolveAbsolutePath(configuredAgentDir);
+  }
+
+  const agentRootDir = resolveAgentRootDirectory(agentId);
+  const nestedAgentDir = path.join(agentRootDir, "agent");
+
+  if (await pathExists(nestedAgentDir)) {
+    return nestedAgentDir;
+  }
+
+  return nestedAgentDir;
+}
+
+async function resolveForkAgentStorage(sourceAgentId, sourceEntry, childAgentId) {
+  const sourceAgentRootDir = resolveAgentRootDirectory(sourceAgentId);
+  const sourceAgentDir = await resolveAgentDirectory(sourceAgentId, sourceEntry);
+  let relativeAgentDir = "agent";
+
+  if (sourceAgentDir === sourceAgentRootDir) {
+    relativeAgentDir = ".";
+  } else if (sourceAgentDir.startsWith(`${sourceAgentRootDir}${path.sep}`)) {
+    relativeAgentDir = path.relative(sourceAgentRootDir, sourceAgentDir) || ".";
+  }
+
+  const childAgentRootDir = resolveAgentRootDirectory(childAgentId);
+  const childAgentDir = relativeAgentDir === "."
+    ? childAgentRootDir
+    : path.join(childAgentRootDir, relativeAgentDir);
+
+  return {
+    sourceAgentRootDir,
+    sourceAgentDir,
+    childAgentRootDir,
+    childAgentDir,
+    relativeAgentDir
+  };
+}
+
+async function seedForkedAgentDirectory({ sourceAgentDir, sourceAgentRootDir, childAgentDir, childAgentRootDir, relativeAgentDir }) {
+  const sourceExists = await pathExists(sourceAgentDir);
+
+  await ensureDir(childAgentRootDir);
+
+  if (!sourceExists) {
+    await ensureDir(childAgentDir);
+    return;
+  }
+
+  if (relativeAgentDir === ".") {
+    await ensureDir(childAgentDir);
+
+    for (const entry of await fs.readdir(sourceAgentRootDir, { withFileTypes: true })) {
+      if (entry.name === "sessions") {
+        continue;
+      }
+
+      await copyPath(
+        path.join(sourceAgentRootDir, entry.name),
+        path.join(childAgentRootDir, entry.name)
+      );
+    }
+
+    return;
+  }
+
+  await copyPath(sourceAgentDir, childAgentDir);
 }
 
 function resolveConfiguredWorkspace(entry) {
@@ -655,13 +727,24 @@ export function createNativeHostBridge(api, logger, options = {}) {
       );
       const configPath = resolveOpenClawConfigPath();
       const configDocument = await readJson(configPath, api?.config ?? {});
+      const parentAgent = resolveParentAgentEntry(api, sourceAgentId);
       const childWorkspacePath = resolveForkWorkspacePath(resolvedPluginConfig, childAgentId);
-      const childAgentDir = resolveAgentDirectory(childAgentId);
       const childSessionId = crypto.randomUUID();
       const childSessionKey = buildAgentSessionKey(childAgentId);
       const childLabel = buildBranchSessionLabel(sourceSessionId, branchId ?? "continue");
-      const parentSessionIndex = await readSessionIndexState(api, sourceAgentId);
       const transcriptPrefix = await loadCheckpointTranscriptPrefix(api, checkpoint);
+      const sourceWorkspacePath = pickNonEmptyString(
+        checkpoint?.workspaceSnapshots?.[0]?.targetPath,
+        resolveConfiguredWorkspace(parentAgent.entry),
+        engine.config.workspaceRoots[0]
+      );
+      const {
+        sourceAgentRootDir,
+        sourceAgentDir,
+        childAgentRootDir,
+        childAgentDir,
+        relativeAgentDir
+      } = await resolveForkAgentStorage(sourceAgentId, parentAgent.entry, childAgentId);
       let configWritten = false;
 
       if (hasConfiguredAgent(api, configDocument, childAgentId)) {
@@ -691,10 +774,10 @@ export function createNativeHostBridge(api, logger, options = {}) {
         );
       }
 
-      if (await pathExists(childAgentDir)) {
+      if (await pathExists(childAgentRootDir)) {
         throw new StepRollbackError(
           "ERR_AGENT_ALREADY_EXISTS",
-          `Agent directory '${childAgentDir}' already exists for agent '${childAgentId}'.`,
+          `Agent directory '${childAgentRootDir}' already exists for agent '${childAgentId}'.`,
           {
             sourceAgentId,
             sourceSessionId,
@@ -706,8 +789,14 @@ export function createNativeHostBridge(api, logger, options = {}) {
       }
 
       try {
-        await ensureDir(childAgentDir);
-        await ensureDir(path.join(childAgentDir, "sessions"));
+        await seedForkedAgentDirectory({
+          sourceAgentDir,
+          sourceAgentRootDir,
+          childAgentDir,
+          childAgentRootDir,
+          relativeAgentDir
+        });
+        await ensureDir(path.join(childAgentRootDir, "sessions"));
 
         await engine.services.checkpointManager.materialize(checkpoint.checkpointId, {
           resolveTargetPath(entry, index) {
@@ -723,19 +812,24 @@ export function createNativeHostBridge(api, logger, options = {}) {
           }
         });
 
-        await writeSessionTranscriptEntries(api, childAgentId, childSessionId, transcriptPrefix);
-        await upsertSessionRecord(api, childAgentId, {
-          sessionId: childSessionId,
-          sessionKey: childSessionKey,
-          label: childLabel,
-          createdAt: nowIso(),
-          updatedAt: nowIso(),
-          branchOf: sourceSessionId
-        }, {
-          shape: Array.isArray(parentSessionIndex.contents) ? "array" : "object"
+        const childTranscriptEntries = forkSessionTranscriptEntries(transcriptPrefix, {
+          sourceSessionId,
+          targetSessionId: childSessionId,
+          targetWorkspacePath: childWorkspacePath
         });
 
-        const parentAgent = resolveParentAgentEntry(api, sourceAgentId);
+        await writeSessionTranscriptEntries(api, childAgentId, childSessionId, childTranscriptEntries);
+        await writeForkedSessionState(api, {
+          sourceAgentId,
+          sourceSessionId,
+          targetAgentId: childAgentId,
+          targetSessionId: childSessionId,
+          targetSessionKey: childSessionKey,
+          sourceWorkspacePath,
+          targetWorkspacePath: childWorkspacePath,
+          label: childLabel
+        });
+
         const childAgentEntry = cloneAgentEntryForFork(parentAgent.entry, {
           newAgentId: childAgentId,
           newWorkspacePath: childWorkspacePath,
@@ -795,7 +889,7 @@ export function createNativeHostBridge(api, logger, options = {}) {
       } catch (error) {
         if (!configWritten) {
           await removePath(childWorkspacePath).catch(() => {});
-          await removePath(childAgentDir).catch(() => {});
+          await removePath(childAgentRootDir).catch(() => {});
         }
 
         if (error instanceof StepRollbackError) {

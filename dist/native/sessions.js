@@ -294,6 +294,10 @@ function resolveDefaultAgentId(api) {
     return sanitizeSessionToken(routingDefault, "main");
   }
 
+  if (agentsConfig?.defaults && typeof agentsConfig.defaults === "object" && !Array.isArray(agentsConfig.defaults)) {
+    return "main";
+  }
+
   const firstEntry = configuredList.find(
     (entry) => entry && typeof entry === "object" && typeof entry.id === "string" && entry.id.trim()
   );
@@ -322,6 +326,75 @@ export function normalizeAgentIdInput(api, value) {
   return normalized;
 }
 
+function resolveConfiguredAgentDefaults(api) {
+  const defaultsEntry = api?.config?.agents?.defaults;
+
+  if (!defaultsEntry || typeof defaultsEntry !== "object" || Array.isArray(defaultsEntry)) {
+    return null;
+  }
+
+  return defaultsEntry;
+}
+
+function buildConfiguredAgentRecord(entry, fallbackId, defaultsEntry = null) {
+  const normalizedEntry = typeof entry === "string"
+    ? {
+      id: entry,
+      name: entry
+    }
+    : entry && typeof entry === "object" && !Array.isArray(entry)
+      ? entry
+      : null;
+
+  if (!normalizedEntry && !fallbackId) {
+    return null;
+  }
+
+  const agentId = sanitizeSessionToken(
+    pickFirst(normalizedEntry?.id, normalizedEntry?.name, normalizedEntry?.agentId, fallbackId),
+    sanitizeSessionToken(fallbackId, "main")
+  );
+
+  return {
+    id: agentId,
+    name: pickFirst(normalizedEntry?.name, normalizedEntry?.id, normalizedEntry?.agentId, defaultsEntry?.name, agentId),
+    workspace: pickFirst(
+      normalizedEntry?.workspace,
+      normalizedEntry?.workspaceRoot,
+      normalizedEntry?.cwd,
+      normalizedEntry?.root,
+      defaultsEntry?.workspace,
+      defaultsEntry?.workspaceRoot,
+      defaultsEntry?.cwd,
+      defaultsEntry?.root
+    ),
+    model: pickFirst(normalizedEntry?.model, normalizedEntry?.defaultModel, defaultsEntry?.model, defaultsEntry?.defaultModel)
+  };
+}
+
+function mergeConfiguredAgentRecords(records) {
+  const merged = new Map();
+
+  for (const record of records) {
+    if (!record?.id) {
+      continue;
+    }
+
+    const current = merged.get(record.id) ?? {};
+    const next = { ...current };
+
+    for (const key of ["id", "name", "workspace", "model"]) {
+      if (record[key] !== undefined) {
+        next[key] = record[key];
+      }
+    }
+
+    merged.set(record.id, next);
+  }
+
+  return [...merged.values()];
+}
+
 export function normalizeExternalParams(api, params) {
   if (!params || typeof params !== "object" || Array.isArray(params)) {
     return params ?? {};
@@ -337,6 +410,11 @@ export function normalizeExternalParams(api, params) {
 }
 
 export function getConfiguredAgents(api) {
+  const defaultsEntry = resolveConfiguredAgentDefaults(api);
+  const defaultAgentId = resolveDefaultAgentId(api);
+  const defaultRecord = defaultsEntry
+    ? buildConfiguredAgentRecord(defaultsEntry, defaultAgentId)
+    : null;
   const configured = pickFirst(
     api?.config?.agents?.list,
     api?.config?.agents?.entries,
@@ -344,56 +422,39 @@ export function getConfiguredAgents(api) {
   );
 
   if (Array.isArray(configured)) {
-    return configured
+    const explicitEntries = configured
       .map((entry) => {
-        if (typeof entry === "string") {
-          return { id: entry, name: entry };
-        }
+        const fallbackId = typeof entry === "string"
+          ? entry
+          : pickFirst(entry?.id, entry?.name, entry?.agentId);
 
-        if (entry && typeof entry === "object") {
-          return {
-            id: pickFirst(entry.id, entry.name, entry.agentId),
-            name: pickFirst(entry.name, entry.id, entry.agentId),
-            workspace: pickFirst(entry.workspace, entry.workspaceRoot, entry.cwd, entry.root),
-            model: pickFirst(entry.model, entry.defaultModel)
-          };
-        }
-
-        return null;
+        return buildConfiguredAgentRecord(entry, fallbackId, defaultsEntry);
       })
       .filter((entry) => entry?.id);
+
+    return mergeConfiguredAgentRecords([
+      ...(defaultRecord ? [defaultRecord] : []),
+      ...explicitEntries
+    ]);
   }
 
   if (configured && typeof configured === "object") {
     const explicitEntries = Object.entries(configured)
       .filter(([id]) => !["defaults", "list", "entries"].includes(id))
-      .map(([id, entry]) => ({
-        id: sanitizeSessionToken(id, "main"),
-        name: pickFirst(entry?.name, id),
-        workspace: pickFirst(entry?.workspace, entry?.workspaceRoot, entry?.cwd, entry?.root),
-        model: pickFirst(entry?.model, entry?.defaultModel)
-      }))
+      .map(([id, entry]) => buildConfiguredAgentRecord({
+        ...(entry && typeof entry === "object" ? entry : {}),
+        id
+      }, id, defaultsEntry))
       .filter((entry) => entry?.id);
 
-    if (explicitEntries.length > 0) {
-      return explicitEntries;
-    }
-
-    const defaultsEntry = configured.defaults;
-
-    if (defaultsEntry && typeof defaultsEntry === "object") {
-      const defaultAgentId = resolveDefaultAgentId(api);
-
-      return [{
-        id: defaultAgentId,
-        name: pickFirst(defaultsEntry?.name, defaultAgentId),
-        workspace: pickFirst(defaultsEntry?.workspace, defaultsEntry?.workspaceRoot, defaultsEntry?.cwd, defaultsEntry?.root),
-        model: pickFirst(defaultsEntry?.model, defaultsEntry?.defaultModel)
-      }];
+    if (explicitEntries.length > 0 || defaultRecord) {
+      return mergeConfiguredAgentRecords([
+        ...(defaultRecord ? [defaultRecord] : []),
+        ...explicitEntries
+      ]);
     }
   }
 
-  const defaultAgentId = resolveDefaultAgentId(api);
   return [{ id: defaultAgentId, name: defaultAgentId }];
 }
 
@@ -609,6 +670,272 @@ export async function writeSessionTranscriptEntries(api, agentId, sessionId, ent
   return {
     transcriptPath,
     entries: normalizedEntries
+  };
+}
+
+function remapWorkspacePath(value, sourceWorkspacePath, targetWorkspacePath) {
+  if (
+    typeof value !== "string" ||
+    !sourceWorkspacePath ||
+    !targetWorkspacePath ||
+    value === ""
+  ) {
+    return value;
+  }
+
+  if (value === sourceWorkspacePath) {
+    return targetWorkspacePath;
+  }
+
+  const prefix = `${sourceWorkspacePath}${path.sep}`;
+
+  if (value.startsWith(prefix)) {
+    return `${targetWorkspacePath}${value.slice(sourceWorkspacePath.length)}`;
+  }
+
+  return value;
+}
+
+function remapSessionMetadataValue(value, mapping) {
+  if (typeof value === "string") {
+    if (mapping.sourceSessionId && value === mapping.sourceSessionId) {
+      return mapping.targetSessionId;
+    }
+
+    if (mapping.sourceSessionKey && value === mapping.sourceSessionKey) {
+      return mapping.targetSessionKey;
+    }
+
+    if (mapping.sourceTranscriptPath && value === mapping.sourceTranscriptPath) {
+      return mapping.targetTranscriptPath;
+    }
+
+    return remapWorkspacePath(value, mapping.sourceWorkspacePath, mapping.targetWorkspacePath);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => remapSessionMetadataValue(entry, mapping));
+  }
+
+  if (value && typeof value === "object") {
+    const nextValue = {};
+
+    for (const [key, entry] of Object.entries(value)) {
+      nextValue[key] = remapSessionMetadataValue(entry, mapping);
+    }
+
+    return nextValue;
+  }
+
+  return value;
+}
+
+function selectForkTimestamp(value, timestampIso, timestampMs) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return timestampMs;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    return timestampIso;
+  }
+
+  return value;
+}
+
+function findRawSessionIndexEntry(contents, reference = {}) {
+  const sessionId = pickNonEmptyString(reference.sessionId);
+  const sessionKey = pickNonEmptyString(reference.sessionKey);
+
+  if (Array.isArray(contents)) {
+    for (const entry of contents) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+
+      const entrySessionId = pickNonEmptyString(entry.sessionId, entry.id);
+      const entrySessionKey = pickNonEmptyString(entry.sessionKey, entry.key);
+
+      if (sessionKey && entrySessionKey === sessionKey) {
+        return { key: null, entry };
+      }
+
+      if (sessionId && entrySessionId === sessionId) {
+        return { key: null, entry };
+      }
+    }
+
+    return null;
+  }
+
+  if (contents && typeof contents === "object") {
+    for (const [key, entry] of Object.entries(contents)) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+
+      const entrySessionId = pickNonEmptyString(entry.sessionId, entry.id);
+      const entrySessionKey = pickNonEmptyString(entry.sessionKey, entry.key, key);
+
+      if (sessionKey && entrySessionKey === sessionKey) {
+        return { key, entry };
+      }
+
+      if (sessionId && entrySessionId === sessionId) {
+        return { key, entry };
+      }
+    }
+  }
+
+  return null;
+}
+
+function buildForkedSessionRecord(sourceEntry, options = {}) {
+  const timestampIso = nowIso();
+  const timestampMs = Date.now();
+  const targetRecord = sourceEntry && typeof sourceEntry === "object"
+    ? remapSessionMetadataValue(structuredClone(sourceEntry), options)
+    : {};
+
+  targetRecord.sessionId = options.targetSessionId;
+  targetRecord.sessionFile = options.targetTranscriptPath;
+  targetRecord.branchOf = options.sourceSessionId;
+  targetRecord.sourceSessionId = options.sourceSessionId;
+
+  if (
+    options.forceSessionKeyField ||
+    Object.hasOwn(targetRecord, "sessionKey") ||
+    Object.hasOwn(targetRecord, "key") ||
+    !sourceEntry
+  ) {
+    targetRecord.sessionKey = options.targetSessionKey;
+  }
+
+  if (options.label) {
+    if (Object.hasOwn(targetRecord, "title")) {
+      targetRecord.title = options.label;
+    }
+
+    if (Object.hasOwn(targetRecord, "label")) {
+      targetRecord.label = options.label;
+    }
+
+    if (Object.hasOwn(targetRecord, "summary")) {
+      targetRecord.summary = options.label;
+    }
+  }
+
+  if (sourceEntry && typeof sourceEntry === "object") {
+    if (Object.hasOwn(targetRecord, "updatedAt")) {
+      targetRecord.updatedAt = selectForkTimestamp(targetRecord.updatedAt, timestampIso, timestampMs);
+    }
+
+    if (Object.hasOwn(targetRecord, "lastUpdatedAt")) {
+      targetRecord.lastUpdatedAt = selectForkTimestamp(targetRecord.lastUpdatedAt, timestampIso, timestampMs);
+    }
+
+    if (Object.hasOwn(targetRecord, "lastActivityAt")) {
+      targetRecord.lastActivityAt = selectForkTimestamp(targetRecord.lastActivityAt, timestampIso, timestampMs);
+    }
+
+    return targetRecord;
+  }
+
+  return {
+    sessionId: options.targetSessionId,
+    sessionKey: options.targetSessionKey,
+    title: options.label || "(untitled)",
+    label: options.label || "(untitled)",
+    createdAt: timestampIso,
+    updatedAt: timestampIso,
+    branchOf: options.sourceSessionId,
+    sourceSessionId: options.sourceSessionId,
+    sessionFile: options.targetTranscriptPath
+  };
+}
+
+export function forkSessionTranscriptEntries(entries, options = {}) {
+  const normalizedEntries = normalizeTranscriptEntries(entries).map((entry) => structuredClone(entry));
+  let sawSessionEntry = false;
+
+  for (const entry of normalizedEntries) {
+    if (!entry || typeof entry !== "object" || entry.type !== "session") {
+      continue;
+    }
+
+    entry.id = options.targetSessionId;
+
+    if (typeof entry.sessionId === "string" || options.sourceSessionId) {
+      entry.sessionId = options.targetSessionId;
+    }
+
+    if (typeof entry.cwd === "string" || options.targetWorkspacePath) {
+      entry.cwd = options.targetWorkspacePath;
+    }
+
+    if (typeof entry.workspaceDir === "string" || options.targetWorkspacePath) {
+      entry.workspaceDir = options.targetWorkspacePath;
+    }
+
+    sawSessionEntry = true;
+    break;
+  }
+
+  if (!sawSessionEntry) {
+    normalizedEntries.unshift({
+      type: "session",
+      version: 3,
+      id: options.targetSessionId,
+      timestamp: nowIso(),
+      cwd: options.targetWorkspacePath
+    });
+  }
+
+  return normalizedEntries;
+}
+
+export async function writeForkedSessionState(api, options = {}) {
+  const sourceAgentId = normalizeAgentIdInput(api, options.sourceAgentId);
+  const targetAgentId = normalizeAgentIdInput(api, options.targetAgentId);
+  const sourceSessionId = pickNonEmptyString(options.sourceSessionId);
+  const targetSessionId = pickNonEmptyString(options.targetSessionId);
+  const targetSessionKey = pickNonEmptyString(options.targetSessionKey);
+  const targetTranscriptPath = resolveSessionTranscriptPath(api, targetAgentId, targetSessionId);
+  const sourceTranscriptPath = resolveSessionTranscriptPath(api, sourceAgentId, sourceSessionId);
+  const sourceState = await readSessionIndexState(api, sourceAgentId);
+  const sourceMatch = findRawSessionIndexEntry(sourceState.contents, {
+    sessionId: sourceSessionId,
+    sessionKey: options.sourceSessionKey
+  });
+  const nextRecord = buildForkedSessionRecord(sourceMatch?.entry, {
+    sourceSessionId,
+    sourceSessionKey: pickNonEmptyString(sourceMatch?.entry?.sessionKey, sourceMatch?.entry?.key, sourceMatch?.key),
+    sourceTranscriptPath,
+    sourceWorkspacePath: pickNonEmptyString(
+      options.sourceWorkspacePath,
+      sourceMatch?.entry?.systemPromptReport?.workspaceDir
+    ),
+    targetSessionId,
+    targetSessionKey,
+    targetTranscriptPath,
+    targetWorkspacePath: options.targetWorkspacePath,
+    label: options.label,
+    forceSessionKeyField: Array.isArray(sourceState.contents)
+  });
+  const nextContents = Array.isArray(sourceState.contents)
+    ? [nextRecord]
+    : {
+      [targetSessionKey]: nextRecord
+    };
+  const targetSessionIndexPath = resolveSessionIndexPath(api, targetAgentId);
+
+  await writeSessionIndexState(targetSessionIndexPath, nextContents);
+
+  return {
+    agentId: targetAgentId,
+    sessionIndexPath: targetSessionIndexPath,
+    transcriptPath: targetTranscriptPath,
+    contents: nextContents,
+    record: nextRecord
   };
 }
 

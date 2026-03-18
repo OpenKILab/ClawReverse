@@ -51,6 +51,16 @@ async function writeSessionTranscript(root, agentId, sessionId, entries) {
   };
 }
 
+async function writeSessionIndex(root, agentId, contents) {
+  const sessionsDir = path.join(root, "agents", agentId, "sessions");
+  const sessionIndexPath = path.join(sessionsDir, "sessions.json");
+
+  await fs.mkdir(sessionsDir, { recursive: true });
+  await fs.writeFile(sessionIndexPath, `${JSON.stringify(contents, null, 2)}\n`, "utf8");
+
+  return sessionIndexPath;
+}
+
 function createFakeProgram() {
   const commands = new Map();
 
@@ -1428,9 +1438,22 @@ const fs = require("node:fs/promises");
   };
 
   await fs.writeFile(path.join(fixture.workspace, "continue.txt"), "stable\n", "utf8");
+  const mainSessionId = "session-continue-cli";
+  const mainSessionKey = "agent:main:main";
+  const parentAgentDir = path.join(fixture.root, "agents", "main", "agent");
 
+  await fs.mkdir(parentAgentDir, { recursive: true });
+  await fs.writeFile(path.join(parentAgentDir, "auth-profiles.json"), `${JSON.stringify({ default: true })}\n`, "utf8");
+  await fs.writeFile(path.join(parentAgentDir, "models.json"), `${JSON.stringify({ "gpt-test": {} })}\n`, "utf8");
   await writeOpenClawConfig(fixture.configPath, api.config);
-  await writeSessionTranscript(fixture.root, "main", "session-continue-cli", [
+  await writeSessionTranscript(fixture.root, "main", mainSessionId, [
+    {
+      type: "session",
+      version: 3,
+      id: mainSessionId,
+      timestamp: "2026-03-17T11:59:59.000Z",
+      cwd: fixture.workspace
+    },
     {
       type: "message",
       id: "entry-continue-cli",
@@ -1451,6 +1474,35 @@ const fs = require("node:fs/promises");
       }
     }
   ]);
+  await writeSessionIndex(fixture.root, "main", {
+    [mainSessionKey]: {
+      sessionId: mainSessionId,
+      updatedAt: Date.parse("2026-03-17T12:00:00.000Z"),
+      deliveryContext: {
+        channel: "webchat"
+      },
+      lastChannel: "webchat",
+      origin: {
+        provider: "webchat",
+        surface: "webchat",
+        chatType: "direct"
+      },
+      sessionFile: path.join(fixture.root, "agents", "main", "sessions", `${mainSessionId}.jsonl`),
+      modelProvider: "test",
+      model: "gpt-test",
+      systemPromptReport: {
+        sessionId: mainSessionId,
+        sessionKey: mainSessionKey,
+        workspaceDir: fixture.workspace,
+        injectedWorkspaceFiles: [
+          {
+            name: "AGENTS.md",
+            path: path.join(fixture.workspace, "AGENTS.md")
+          }
+        ]
+      }
+    }
+  });
 
   await withTempEnv({
     OPENCLAW_CONFIG_PATH: fixture.configPath,
@@ -1465,12 +1517,12 @@ const fs = require("node:fs/promises");
 
     await registered.hooks.get("session_start").handler({
       agentId: "main",
-      sessionId: "session-continue-cli",
+      sessionId: mainSessionId,
       runId: "run-continue-cli"
     });
     await registered.hooks.get("before_tool_call").handler({
       agentId: "main",
-      sessionId: "session-continue-cli",
+      sessionId: mainSessionId,
       entryId: "entry-continue-cli",
       nodeIndex: 1,
       toolName: "write",
@@ -1485,7 +1537,7 @@ const fs = require("node:fs/promises");
     const checkpointList = await registered.methods.get("steprollback.checkpoints.list")({
       params: {
         agentId: "main",
-        sessionId: "session-continue-cli"
+        sessionId: mainSessionId
       }
     });
     const checkpointId = checkpointList.checkpoints[0].checkpointId;
@@ -1493,7 +1545,7 @@ const fs = require("node:fs/promises");
     await registered.methods.get("steprollback.rollback")({
       params: {
         agentId: "main",
-        sessionId: "session-continue-cli",
+        sessionId: mainSessionId,
         checkpointId
       }
     });
@@ -1504,7 +1556,7 @@ const fs = require("node:fs/promises");
       captureConsoleLog(async () => {
         await cliHarness.commands.get("steprollback continue").action({
           agent: "main",
-          session: "session-continue-cli",
+          session: mainSessionId,
           checkpoint: checkpointId,
           prompt: "Check docs, but do not delete files."
         });
@@ -1519,7 +1571,48 @@ const fs = require("node:fs/promises");
     const childAgent = childConfig.agents.list.find((entry) => entry.id === "main-cp-0001");
     assert.ok(childAgent);
     assert.deepEqual(Object.keys(childAgent).sort(), ["agentDir", "id", "model", "name", "workspace"]);
+    assert.equal(childAgent.agentDir, path.join(fixture.root, "agents", "main-cp-0001", "agent"));
     assert.equal(await fs.readFile(path.join(childAgent.workspace, "continue.txt"), "utf8"), "stable\n");
+    assert.deepEqual(
+      JSON.parse(await fs.readFile(path.join(childAgent.agentDir, "auth-profiles.json"), "utf8")),
+      { default: true }
+    );
+    assert.deepEqual(
+      JSON.parse(await fs.readFile(path.join(childAgent.agentDir, "models.json"), "utf8")),
+      { "gpt-test": {} }
+    );
+
+    const childSessionsDir = path.join(fixture.root, "agents", "main-cp-0001", "sessions");
+    const childSessionFiles = (await fs.readdir(childSessionsDir))
+      .filter((entry) => entry.endsWith(".jsonl"))
+      .sort();
+    assert.equal(childSessionFiles.length, 1);
+
+    const childSessionId = childSessionFiles[0].replace(/\.jsonl$/, "");
+    const childTranscriptEntries = (await fs.readFile(path.join(childSessionsDir, childSessionFiles[0]), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(childTranscriptEntries[0].type, "session");
+    assert.equal(childTranscriptEntries[0].id, childSessionId);
+    assert.equal(childTranscriptEntries[0].cwd, childAgent.workspace);
+    assert.equal(childTranscriptEntries.some((entry) => entry.id === "entry-continue-cli"), true);
+
+    const childSessionIndex = JSON.parse(await fs.readFile(path.join(childSessionsDir, "sessions.json"), "utf8"));
+    assert.deepEqual(Object.keys(childSessionIndex), ["agent:main-cp-0001:main"]);
+
+    const childSessionRecord = childSessionIndex["agent:main-cp-0001:main"];
+    assert.equal(childSessionRecord.sessionId, childSessionId);
+    assert.equal(childSessionRecord.sessionFile, path.join(childSessionsDir, `${childSessionId}.jsonl`));
+    assert.equal(childSessionRecord.branchOf, mainSessionId);
+    assert.equal(childSessionRecord.deliveryContext.channel, "webchat");
+    assert.equal(childSessionRecord.systemPromptReport.sessionId, childSessionId);
+    assert.equal(childSessionRecord.systemPromptReport.sessionKey, "agent:main-cp-0001:main");
+    assert.equal(childSessionRecord.systemPromptReport.workspaceDir, childAgent.workspace);
+    assert.equal(
+      childSessionRecord.systemPromptReport.injectedWorkspaceFiles[0].path,
+      path.join(childAgent.workspace, "AGENTS.md")
+    );
 
     const capture = JSON.parse(await fs.readFile(fakeAgentCapturePath, "utf8"));
     assert.equal(capture.args[0], "agent");
@@ -1967,7 +2060,14 @@ test("maps agents.defaults to main and accepts default aliases in CLI and Gatewa
           model: {
             primary: "vllm/Intern-S1-Pro"
           }
-        }
+        },
+        list: [
+          {
+            id: "main-cp-0001",
+            name: "main-cp-0001",
+            workspace: path.join(fixture.root, "forks", "main-cp-0001")
+          }
+        ]
       },
       session: {
         storePath: sessionStoreTemplate
@@ -2018,6 +2118,8 @@ test("maps agents.defaults to main and accepts default aliases in CLI and Gatewa
     await cliHarness.commands.get("steprollback agents").action({});
   });
   assert.match(agentsOutput, /\bmain\b/);
+  assert.match(agentsOutput, /\bmain-cp-0001\b/);
+  assert.match(agentsOutput, /main-cp-0001\s+main-cp-0001\s+.*\{"primary":"vllm\/Intern-S1-Pro"\}/);
   assert.doesNotMatch(agentsOutput, /\bdefaults\b/);
 
   const sessionsOutput = await captureConsoleLog(async () => {
