@@ -842,7 +842,7 @@ function renderCliOverview() {
       { key: "description", label: "Description" }
     ]),
     "",
-    "Run 'openclaw steprollback <command> --help' for command-specific details."
+    "Run 'openclaw reverse <command> --help' for command-specific details."
   ].join("\n");
 }
 
@@ -1115,7 +1115,7 @@ export function registerCli(api, engine, cliMethodInvoker) {
 
   api.registerCli(
     ({ program }) => {
-      const command = program.command("steprollback").description("Inspect the Step Rollback native plugin.");
+      const command = program.command("reverse").description("Inspect the ClawReverse native plugin.");
       attachCliOverviewHelp(command);
 
       for (const definition of CLI_COMMANDS) {
@@ -1136,6 +1136,6 @@ export function registerCli(api, engine, cliMethodInvoker) {
         });
       }
     },
-    { commands: ["steprollback"] }
+    { commands: ["reverse"] }
   );
 }

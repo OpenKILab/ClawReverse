@@ -1,6 +1,8 @@
 # ClawReverse
 
-Safe checkpointing, rollback, and clean branching for OpenClaw sessions.
+Checkpoint, roll back, and branch OpenClaw sessions safely with `openclaw reverse`.
+
+ClawReverse is an OpenClaw native plugin that adds the `openclaw reverse` command for saving checkpoints, restoring a clean workspace state, and continuing from useful progress instead of starting over.
 
 ## User Scenarios
 
@@ -48,12 +50,14 @@ openclaw plugins install -l <path-to-repo>
 
 Use `openclaw plugins install <path-to-repo>` if you want a copied install instead of a linked one.
 
+The plugin key remains `step-rollback` in `openclaw.json`, but its CLI base command is `openclaw reverse`.
+
 ### Minimal config
 
 Fastest path:
 
 ```bash
-openclaw steprollback setup
+openclaw reverse setup
 ```
 
 If you prefer to edit `openclaw.json` yourself, this is the minimum useful plugin entry:
@@ -82,7 +86,7 @@ Other plugin paths default under `~/.openclaw/plugins/step-rollback/`.
 Restart Gateway after install or config changes, then verify that the plugin is visible:
 
 ```bash
-openclaw steprollback --help
+openclaw reverse --help
 ```
 
 If the command is missing, make sure `openclaw.json` still passes validation and `step-rollback` is allowed.
@@ -94,9 +98,9 @@ If the command is missing, make sure `openclaw.json` still passes validation and
 3. Continue from a checkpoint into a clean child branch.
 
 ```bash
-openclaw steprollback checkpoints --agent <agent-id> --session <session-id>
+openclaw reverse checkpoints --agent <agent-id> --session <session-id>
 
-openclaw steprollback continue \
+openclaw reverse continue \
   --agent <agent-id> \
   --session <session-id> \
   --checkpoint <checkpoint-id> \
@@ -107,10 +111,10 @@ If you want to rewind the parent session instead of creating a child branch, use
 
 ### Inspect the checkpoint tree
 
-Use `openclaw steprollback tree` to see checkpoint lineage across the parent session and any child branches created with `continue`.
+Use `openclaw reverse tree` to see checkpoint lineage across the parent session and any child branches created with `continue`.
 
 ```bash
-openclaw steprollback tree --agent <agent-id> --session <session-id>
+openclaw reverse tree --agent <agent-id> --session <session-id>
 ```
 
 This is useful when you want to answer questions like:
@@ -122,7 +126,7 @@ This is useful when you want to answer questions like:
 If you want to focus on one checkpoint as the tree root, pass `--node` (or `--checkpoint` as an alias):
 
 ```bash
-openclaw steprollback tree \
+openclaw reverse tree \
   --agent <agent-id> \
   --session <session-id> \
   --node <checkpoint-id>
@@ -137,3 +141,10 @@ From the repo root:
 ```bash
 npm test
 ```
+
+## Contact
+
+For questions or collaboration, please contact:
+
+- [wangxuhong@pjlab.org.cn](mailto:wangxuhong@pjlab.org.cn)
+- [huangbin@pjlab.org.cn](mailto:huangbin@pjlab.org.cn)

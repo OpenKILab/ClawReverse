@@ -921,7 +921,7 @@ test("registers a native OpenClaw plugin and drives rollback through registered 
     assert.equal(typeof registered.hooks.get("before_tool_call").handler, "function");
     assert.equal(registered.services.length, 1);
     assert.equal(registered.clis.length, 1);
-    assert.deepEqual(registered.clis[0].meta.commands, ["steprollback"]);
+    assert.deepEqual(registered.clis[0].meta.commands, ["reverse"]);
 
     const serviceStartResult = await registered.services[0].start();
     assert.equal(serviceStartResult.pluginId, "step-rollback");
@@ -1111,7 +1111,7 @@ test("setup patches openclaw.json and creates plugin directories", async () => {
     registered.clis[0].factory({ program: cliHarness.program });
 
     const output = await captureConsoleLog(async () => {
-      await cliHarness.commands.get("steprollback setup").action({});
+      await cliHarness.commands.get("reverse setup").action({});
     });
 
     assert.match(output, /configPath/);
@@ -1137,7 +1137,7 @@ test("setup patches openclaw.json and creates plugin directories", async () => {
     await fs.access(path.join(fixture.root, "plugins", "step-rollback", "reports"));
 
     const beforeDryRun = await fs.readFile(fixture.configPath, "utf8");
-    await cliHarness.commands.get("steprollback setup").action({
+    await cliHarness.commands.get("reverse setup").action({
       baseDir: path.join(fixture.root, "dry-run-root"),
       dryRun: true
     });
@@ -1281,7 +1281,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
 
   const cliHarness = createFakeProgram();
   registered.clis[0].factory({ program: cliHarness.program });
-  const rootHelp = cliHarness.commands.get("steprollback").helpTexts.after.join("\n");
+  const rootHelp = cliHarness.commands.get("reverse").helpTexts.after.join("\n");
 
   assert.match(rootHelp, /Command overview:/);
   assert.match(rootHelp, /setup \[--base-dir <path>\] \[--dry-run\] \[--json\]/);
@@ -1291,7 +1291,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   assert.match(rootHelp, /checkout --agent <agentId> --source-session <sessionId> --entry <entryId> \[--continue\] \[--prompt <text>\] \[--json\]/);
   assert.match(rootHelp, /report --rollback <rollbackId> \[--json\]/);
   assert.match(rootHelp, /branch --branch <branchId> \[--json\]/);
-  assert.match(rootHelp, /openclaw steprollback <command> --help/);
+  assert.match(rootHelp, /openclaw reverse <command> --help/);
 
   await registered.hooks.get("session_start").handler({
     agentId: "main",
@@ -1308,7 +1308,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   await fs.writeFile(path.join(fixture.workspace, "cli.txt"), "broken\n", "utf8");
 
   const agentsOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback agents").action({ agent: "main" });
+    await cliHarness.commands.get("reverse agents").action({ agent: "main" });
   });
   assert.match(agentsOutput, /Agent/);
   assert.match(agentsOutput, /main/);
@@ -1316,7 +1316,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   const sessionsOutput = await captureConsoleLog(async () => {
     await withEnv("NO_COLOR", undefined, async () =>
       withEnv("FORCE_COLOR", "1", async () => {
-        await cliHarness.commands.get("steprollback sessions").action({ agent: "main" });
+        await cliHarness.commands.get("reverse sessions").action({ agent: "main" });
       })
     );
   });
@@ -1329,7 +1329,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   assert.match(sessionsOutput, /\u001b\[[0-9;]*msession-cli\u001b\[0m/);
 
   const checkpointsOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback checkpoints").action({
+    await cliHarness.commands.get("reverse checkpoints").action({
       agent: "main",
       session: "session-cli"
     });
@@ -1346,7 +1346,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   const checkpointId = checkpointList.checkpoints[0].checkpointId;
 
   const rollbackOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback rollback").action({
+    await cliHarness.commands.get("reverse rollback").action({
       agent: "main",
       session: "session-cli",
       checkpoint: checkpointId,
@@ -1368,7 +1368,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   );
 
   const continueOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback continue").action({
+    await cliHarness.commands.get("reverse continue").action({
       agent: "main",
       session: "session-cli",
       checkpoint: checkpointId,
@@ -1409,7 +1409,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   });
 
   const treeOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback tree").action({});
+    await cliHarness.commands.get("reverse tree").action({});
   });
   assert.match(treeOutput, /Root:/);
   assert.match(treeOutput, /Resolved by: default/);
@@ -1418,7 +1418,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   assert.match(treeOutput, /via continue/);
 
   const namedContinueOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback continue").action({
+    await cliHarness.commands.get("reverse continue").action({
       agent: "main",
       session: "session-cli",
       checkpoint: checkpointId,
@@ -1528,7 +1528,7 @@ const fs = require("node:fs/promises");
     STEP_ROLLBACK_FAKE_GATEWAY_CAPTURE: gatewayCapturePath
   }, async () =>
     captureConsoleLog(async () => {
-      await cliHarness.commands.get("steprollback rollback-status").action({
+      await cliHarness.commands.get("reverse rollback-status").action({
         agent: "main",
         session: "session-auth"
       });
@@ -1759,7 +1759,7 @@ const fs = require("node:fs/promises");
       STEP_ROLLBACK_FAKE_AGENT_CAPTURE: fakeAgentCapturePath
     }, async () =>
       captureConsoleLog(async () => {
-        await cliHarness.commands.get("steprollback continue").action({
+        await cliHarness.commands.get("reverse continue").action({
           agent: "main",
           session: mainSessionId,
           checkpoint: checkpointId,
@@ -1994,7 +1994,7 @@ const fs = require("node:fs/promises");
       }
     });
 
-    await cliHarness.commands.get("steprollback continue").action({
+    await cliHarness.commands.get("reverse continue").action({
       agent: "main",
       session: "session-migrate",
       checkpoint: checkpointList.checkpoints[0].checkpointId,
@@ -2210,7 +2210,7 @@ const fs = require("node:fs/promises");
       }
     });
 
-    await cliHarness.commands.get("steprollback continue").action({
+    await cliHarness.commands.get("reverse continue").action({
       agent: "main",
       session: "session-repair",
       checkpoint: checkpointList.checkpoints[0].checkpointId,
@@ -2338,7 +2338,7 @@ test("maps agents.defaults to main and accepts default aliases in CLI and Gatewa
   registered.clis[0].factory({ program: cliHarness.program });
 
   const agentsOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback agents").action({});
+    await cliHarness.commands.get("reverse agents").action({});
   });
   assert.match(agentsOutput, /\bmain\b/);
   assert.match(agentsOutput, /\bmain-cp-0001\b/);
@@ -2346,7 +2346,7 @@ test("maps agents.defaults to main and accepts default aliases in CLI and Gatewa
   assert.doesNotMatch(agentsOutput, /\bdefaults\b/);
 
   const sessionsOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback sessions").action({ agent: "default" });
+    await cliHarness.commands.get("reverse sessions").action({ agent: "default" });
   });
   assert.match(sessionsOutput, /session-defaults/);
 
