@@ -50,7 +50,7 @@ openclaw plugins install -l <path-to-repo>
 
 Use `openclaw plugins install <path-to-repo>` if you want a copied install instead of a linked one.
 
-The plugin key remains `step-rollback` in `openclaw.json`, but its CLI base command is `openclaw reverse`.
+The plugin key in `openclaw.json` is `clawreverse`, and its CLI base command is `openclaw reverse`.
 
 ### Minimal config
 
@@ -65,10 +65,10 @@ If you prefer to edit `openclaw.json` yourself, this is the minimum useful plugi
 ```json
 {
   "plugins": {
-    "allow": ["step-rollback"],
+    "allow": ["clawreverse"],
     "enabled": true,
     "entries": {
-      "step-rollback": {
+      "clawreverse": {
         "enabled": true,
         "config": {
           "workspaceRoots": ["~/.openclaw/workspace"]
@@ -79,7 +79,7 @@ If you prefer to edit `openclaw.json` yourself, this is the minimum useful plugi
 }
 ```
 
-Other plugin paths default under `~/.openclaw/plugins/step-rollback/`.
+Other plugin paths default under `~/.openclaw/plugins/clawreverse/`.
 
 ### Verify installation
 
@@ -89,7 +89,7 @@ Restart Gateway after install or config changes, then verify that the plugin is 
 openclaw reverse --help
 ```
 
-If the command is missing, make sure `openclaw.json` still passes validation and `step-rollback` is allowed.
+If the command is missing, make sure `openclaw.json` still passes validation and `clawreverse` is allowed.
 
 ### One minimal happy-path example
 

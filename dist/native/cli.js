@@ -586,7 +586,7 @@ const CLI_COMMANDS = [
   {
     name: "setup",
     usage: "setup [--base-dir <path>] [--dry-run] [--json]",
-    description: "Initialize Step Rollback config in openclaw.json.",
+    description: "Initialize ClawReverse config in openclaw.json.",
     options: [
       createCliOption("--base-dir <path>", "Base OpenClaw state directory. Defaults to OPENCLAW_STATE_DIR, OPENCLAW_HOME, or ~/.openclaw."),
       createCliOption("--dry-run", "Preview the config patch without writing files."),
@@ -1093,7 +1093,7 @@ export function createCliMethodInvoker(api, engine, logger, options = {}) {
     if (typeof localMethod !== "function") {
       throw new StepRollbackError(
         "GATEWAY_CALL_FAILED",
-        `Step Rollback could not resolve a handler for '${methodName}'.`,
+        `ClawReverse could not resolve a handler for '${methodName}'.`,
         { methodName, params: normalizedParams }
       );
     }

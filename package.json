@@ -1,8 +1,8 @@
 {
-  "name": "step-rollback",
+  "name": "clawreverse",
   "version": "0.1.0",
   "private": true,
-  "description": "OpenClaw native step rollback plugin built from the project docs.",
+  "description": "OpenClaw native ClawReverse plugin for checkpointing, rollback, and clean branching.",
   "type": "module",
   "main": "./dist/index.js",
   "exports": "./dist/index.js",

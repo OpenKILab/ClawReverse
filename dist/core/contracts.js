@@ -1,10 +1,10 @@
 export const defaultConfig = {
   enabled: true,
   workspaceRoots: ["~/.openclaw/workspace"],
-  checkpointDir: "~/.openclaw/plugins/step-rollback/checkpoints",
-  registryDir: "~/.openclaw/plugins/step-rollback/registry",
-  runtimeDir: "~/.openclaw/plugins/step-rollback/runtime",
-  reportsDir: "~/.openclaw/plugins/step-rollback/reports",
+  checkpointDir: "~/.openclaw/plugins/clawreverse/checkpoints",
+  registryDir: "~/.openclaw/plugins/clawreverse/registry",
+  runtimeDir: "~/.openclaw/plugins/clawreverse/runtime",
+  reportsDir: "~/.openclaw/plugins/clawreverse/reports",
   maxCheckpointsPerSession: 100,
   allowContinuePrompt: true,
   stopRunBeforeRollback: true
@@ -18,10 +18,10 @@ export const CONFIG_DIRECTORY_KEYS = [
 ];
 
 export const manifest = {
-  id: "step-rollback",
-  name: "Step Rollback",
+  id: "clawreverse",
+  name: "ClawReverse",
   version: "0.1.0",
-  description: "Gateway rollback and session checkout plugin for OpenClaw.",
+  description: "Checkpoint, rollback, and branch continuation plugin for OpenClaw.",
   runtime: {
     entry: "./dist/index.js"
   },
@@ -68,17 +68,17 @@ export const manifest = {
 };
 
 export const METHOD_NAMES = {
-  status: "steprollback.status",
-  checkpointsList: "steprollback.checkpoints.list",
-  checkpointsGet: "steprollback.checkpoints.get",
-  rollback: "steprollback.rollback",
-  continue: "steprollback.continue",
-  rollbackStatus: "steprollback.rollback.status",
-  reportsGet: "steprollback.reports.get",
-  sessionNodesList: "steprollback.session.nodes.list",
-  sessionTree: "steprollback.session.tree",
-  sessionCheckout: "steprollback.session.checkout",
-  sessionBranchGet: "steprollback.session.branch.get"
+  status: "clawreverse.status",
+  checkpointsList: "clawreverse.checkpoints.list",
+  checkpointsGet: "clawreverse.checkpoints.get",
+  rollback: "clawreverse.rollback",
+  continue: "clawreverse.continue",
+  rollbackStatus: "clawreverse.rollback.status",
+  reportsGet: "clawreverse.reports.get",
+  sessionNodesList: "clawreverse.session.nodes.list",
+  sessionTree: "clawreverse.session.tree",
+  sessionCheckout: "clawreverse.session.checkout",
+  sessionBranchGet: "clawreverse.session.branch.get"
 };
 
 export const GATEWAY_METHOD_NAMES = Object.values(METHOD_NAMES);

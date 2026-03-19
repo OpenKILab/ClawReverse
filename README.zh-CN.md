@@ -50,7 +50,7 @@ openclaw plugins install -l <path-to-repo>
 
 如果你想用复制安装而不是软链接安装，可以使用 `openclaw plugins install <path-to-repo>`。
 
-插件在 `openclaw.json` 里的配置键仍然是 `step-rollback`，但 CLI 基础命令已经改为 `openclaw reverse`。
+插件在 `openclaw.json` 里的配置键是 `clawreverse`，CLI 基础命令是 `openclaw reverse`。
 
 ### 最小配置
 
@@ -65,10 +65,10 @@ openclaw reverse setup
 ```json
 {
   "plugins": {
-    "allow": ["step-rollback"],
+    "allow": ["clawreverse"],
     "enabled": true,
     "entries": {
-      "step-rollback": {
+      "clawreverse": {
         "enabled": true,
         "config": {
           "workspaceRoots": ["~/.openclaw/workspace"]
@@ -79,7 +79,7 @@ openclaw reverse setup
 }
 ```
 
-其余插件路径默认会落在 `~/.openclaw/plugins/step-rollback/` 下。
+其余插件路径默认会落在 `~/.openclaw/plugins/clawreverse/` 下。
 
 ### 验证安装
 
@@ -89,7 +89,7 @@ openclaw reverse setup
 openclaw reverse --help
 ```
 
-如果命令没有出现，先确认 `openclaw.json` 仍然能通过校验，并且 `step-rollback` 已经加入 `plugins.allow`。
+如果命令没有出现，先确认 `openclaw.json` 仍然能通过校验，并且 `clawreverse` 已经加入 `plugins.allow`。
 
 ### 一个最小 happy path
 
