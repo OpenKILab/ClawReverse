@@ -1,26 +1,22 @@
-# SecureStepClaw
+# ClawReverse
 
 为 OpenClaw 会话提供安全的 checkpoint、rollback 和干净的分支继续能力。
 
-## 痛点
+## 使用场景
 
-当 agent 已经连续执行了多个会改动状态的 tool call 时，想安全地回到历史点，或者从旧状态试另一条路线，往往会变得很麻烦。SecureStepClaw 的目标就是把这件事变简单：你可以查看历史、恢复到已知良好的状态，并且在不污染父级运行的前提下继续分支。
+ClawReverse 专为两类任务执行场景设计，帮你高效管理任务，解决重复执行问题：
 
-- agent 已经通过多次 tool call 修改了 workspace，很难安全地回退。
-- 用户想从某个历史点分叉，但不希望污染 parent agent、workspace 或 session。
-- 历史文件状态和 transcript lineage 不容易检查，也不容易复现。
-- 第一次使用的人需要的是一条最快可走通的路径，而不是一份很长的说明书。
+1. 任务运行中，workspace 内文件被误删、篡改，导致环境混乱，需要快速恢复至整洁、可控的初始状态。
+2. 无需完整重新运行任务，已有部分可用结果，可直接基于现有成果继续推进，大幅减少重复步骤，节省 token 消耗。
 
-## SecureStepClaw 能做什么
+## ClawReverse 能做什么
 
-SecureStepClaw 是一个 OpenClaw `step-rollback` 插件，主要能力包括：
+ClawReverse 帮你在不丢掉已有成果的前提下，把 workspace 拉回可控状态并继续推进任务。
 
-- 在状态变更型 tool call 之前自动创建 checkpoint
-- 查看某个 agent / session 的 checkpoint 历史
-- 将 source session rollback 到指定 checkpoint
-- 从指定 checkpoint continue，创建新的 child agent、workspace 和 session
-
-只读调用会被跳过，因此 checkpoint 历史会更聚焦于真正的状态变化。
+- 在任务推进过程中保存 checkpoint。
+- 在文件误删或改乱后，回到更早的干净状态。
+- 基于已有的部分结果继续任务，而不是从头重跑。
+- 复用已经正确的结果，减少重复推演和 token 消耗。
 
 ## 核心概念
 
@@ -109,11 +105,30 @@ openclaw steprollback continue \
 
 如果你想回退 parent session，而不是创建 child 分支，就使用同一组 `--agent`、`--session`、`--checkpoint` 参数执行 `rollback`。
 
-## 延伸阅读
+### 查看 checkpoint tree
 
-- `openclaw steprollback --help`：查看当前 CLI 命令和参数
-- [PRD](./docs/PRD.md)
-- [PRD.zh-CN](./docs/PRD.zh-CN.md)
+如果你想看 parent session 和通过 `continue` 创建出来的 child branch 是怎么连接起来的，可以使用 `openclaw steprollback tree`：
+
+```bash
+openclaw steprollback tree --agent <agent-id> --session <session-id>
+```
+
+它适合回答这些问题：
+
+- 这次视图的 root checkpoint 是哪个
+- 哪些地方发生了继续分支
+- 一共涉及多少 nodes、sessions 和 branches
+
+如果你想把某个 checkpoint 当作树根来聚焦查看，可以使用 `--node`，也可以用它的别名 `--checkpoint`：
+
+```bash
+openclaw steprollback tree \
+  --agent <agent-id> \
+  --session <session-id> \
+  --node <checkpoint-id>
+```
+
+如果你想拿到原始结构化输出，可以加 `--json`。
 
 ## 验证 / 测试
 

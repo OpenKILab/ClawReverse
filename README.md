@@ -1,26 +1,22 @@
-# SecureStepClaw
+# ClawReverse
 
 Safe checkpointing, rollback, and clean branching for OpenClaw sessions.
 
-## Pain Points
+## User Scenarios
 
-When an agent has already made several state-changing tool calls, going back safely or trying a different path can get messy fast. SecureStepClaw gives you a clean way to inspect history, recover a known-good point, and branch without contaminating the parent run.
+ClawReverse is designed for two common task execution scenarios, helping you manage work efficiently and avoid unnecessary repetition:
 
-- An agent has already changed the workspace through multiple tool calls and it is hard to safely go back.
-- A user wants to branch from a historical point without polluting the parent agent, workspace, or session.
-- Historical file state and transcript lineage are hard to inspect and reproduce.
-- First-time users need a fast path, not a long document.
+1. During task execution, files in the workspace are accidentally deleted or modified, which leaves the environment messy and hard to control. You need a fast way to restore it to a clean, manageable starting state.
+2. You do not need to rerun the entire task. Some useful results already exist, and you want to continue directly from that progress, cutting down repeated steps and saving token cost.
 
-## What SecureStepClaw Does
+## What ClawReverse Does
 
-SecureStepClaw is an OpenClaw `step-rollback` plugin that:
+ClawReverse helps you recover control of the workspace without throwing away useful progress.
 
-- automatically creates checkpoints before state-changing tool calls
-- lets you inspect checkpoint history for an agent/session
-- lets you rollback a source session to a chosen checkpoint
-- lets you continue from a checkpoint into a new child agent, workspace, and session
-
-Read-only calls are skipped, so checkpoint history stays focused on meaningful state changes.
+- Save checkpoints as the task moves forward.
+- Roll back to an earlier clean state after unwanted file changes.
+- Continue from existing partial results instead of restarting from scratch.
+- Reduce repeated work and token usage by reusing what is already correct.
 
 ## Core Concepts
 
@@ -109,11 +105,30 @@ openclaw steprollback continue \
 
 If you want to rewind the parent session instead of creating a child branch, use `rollback` with the same `--agent`, `--session`, and `--checkpoint` values.
 
-## Where to Learn More
+### Inspect the checkpoint tree
 
-- `openclaw steprollback --help` for the current CLI surface and flags
-- [PRD](./docs/PRD.md)
-- [PRD.zh-CN](./docs/PRD.zh-CN.md)
+Use `openclaw steprollback tree` to see checkpoint lineage across the parent session and any child branches created with `continue`.
+
+```bash
+openclaw steprollback tree --agent <agent-id> --session <session-id>
+```
+
+This is useful when you want to answer questions like:
+
+- which checkpoint is the root of this view
+- where the session continued into a child branch
+- how many nodes, sessions, and branches are involved
+
+If you want to focus on one checkpoint as the tree root, pass `--node` (or `--checkpoint` as an alias):
+
+```bash
+openclaw steprollback tree \
+  --agent <agent-id> \
+  --session <session-id> \
+  --node <checkpoint-id>
+```
+
+Add `--json` if you want raw structured output.
 
 ## Verification / Tests
 
