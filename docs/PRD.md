@@ -1,708 +1,308 @@
 # PRD: SecureStepClaw / Step Rollback
 
-## 1. Document Info
+## 1. Executive Summary
 
-- Document name: `SecureStepClaw Product Requirements Document`
-- Version: `v1.1`
-- Language: `English`
-- Plugin ID: `step-rollback`
-- CLI namespace: `openclaw steprollback ...`
-- Target form: `OpenClaw Native Plugin`
+SecureStepClaw brings recoverable history and safe branching to OpenClaw agent execution. The product creates automatic checkpoints before state-changing tool calls, lets users inspect and restore historical execution state, and lets them continue from a checkpoint into a clean child branch without mutating the parent.
 
-## 2. Background and Problem
+Phase 1 is the current shipping baseline. It establishes the core contract: checkpoints capture recoverable state, rollback restores the source side without becoming a branch operation, and continue is the only fork operation into a new workspace, new agent, and new session.
 
-OpenClaw already has the basic runtime building blocks for agents, workspaces, and sessions. What it still lacks is a clear, stable, recoverable, and forkable history management model.
+Phase 2 expands the product into sandbox-backed execution. It adds sandbox-aware capture, restore, continue, provider abstraction, environment reproducibility where supported, and the operational controls required to run sandbox-backed history safely and economically at scale.
 
-Users run into several common problems:
+## 2. Background and User Pain Points
 
-- An agent has already executed multiple tool calls and changed the workspace, but the user cannot easily return to a stable historical point.
-- A user wants to explore a different direction from a historical state without polluting the current agent.
-- A user wants to freeze "historical file state + corresponding session history" into a reproducible branch that can keep evolving independently.
+OpenClaw agents can change files, session state, and runtime context quickly, but historical recovery is difficult without a first-class model for durable checkpoints and clean branch creation.
 
-This plugin is meant to fill that gap:
+Common pain points:
 
-- Only create checkpoint snapshots during state-changing tool calls.
-- Only create a brand-new workspace, brand-new agent, and brand-new session when the user explicitly decides to continue from a checkpoint.
-- Keep lineage between the parent agent and the child agent explicit and queryable.
+- A user wants to return to a known-good state after several tool calls have changed the workspace.
+- A user wants to explore an alternate path from an earlier point without polluting the parent agent or parent workspace.
+- A user needs a trustworthy mapping between historical file state, session history, and downstream branches.
+- Operators need history management that is inspectable, recoverable, and safe to run in real projects.
+- As sandbox usage grows, users need the same guarantees to extend beyond files alone and into the execution environment where feasible.
 
-## 3. Core Semantics
+## 3. Target Users / Personas
 
-### 3.1 A checkpoint only captures state
+- Individual OpenClaw users who need safe undo, inspection, and branching during iterative work.
+- Power users and prompt engineers who want to compare alternate continuations from the same historical checkpoint.
+- Agent platform operators who need reliable lineage, rollback visibility, and auditable execution history.
+- Teams adopting sandboxed execution who need reproducible branch creation with clear security and cost boundaries.
 
-A checkpoint has exactly one job: record a recoverable historical state.
+## 4. Core Product Principles and Invariants
 
-At minimum, a checkpoint contains:
+- A checkpoint is a historical snapshot, not a branch entity.
+- Automatic checkpoints are created only for state-changing tool calls. Read-only calls do not create checkpoints.
+- A checkpoint must preserve a recoverable state boundary across workspace state, a closed session transcript prefix, and lineage metadata.
+- `rollback` restores the source side to a chosen checkpoint. It must not create a new workspace, agent, or session.
+- `rollback` preserves the current semantic contract: by default it does not rewrite the parent workspace, and only performs in-place workspace restoration when explicitly requested.
+- `continue` is the only fork operation.
+- `continue` preserves the current semantic contract: a checkpoint is required, `--prompt` is required, and the result is a new workspace, new agent, and new session.
+- `continue` must not pollute the parent workspace, parent session, parent agent directory, or parent runtime state.
+- Transcript restoration must use a closed historical prefix, never an arbitrary truncation.
+- Node, checkout, report, and branch flows are checkpoint-backed product surfaces, but they do not redefine the meaning of checkpoint, rollback, or continue.
 
-- a workspace snapshot
-- a transcript prefix
-- lineage metadata
+## 5. Phase 1
 
-Creating a checkpoint must not:
+### Goals
 
-- create a new workspace
-- create a new agent
-- create a new session
-- change the logical identity of the parent agent
+- Ship a stable baseline for checkpoint-backed recovery and branching.
+- Make historical state easy to discover, inspect, and act on.
+- Keep the parent side safe while enabling clean continuation into child branches.
+- Establish durable lineage across checkpoints, rollbacks, sessions, and branches.
 
-### 3.2 Tool calls create checkpoints automatically
+### In Scope
 
-Whenever the agent executes a state-changing tool call, the plugin should create a checkpoint automatically.
+- Automatic checkpoints on state-changing tool calls.
+- Checkpoint list and detail queries.
+- Rollback and rollback-status.
+- Continue from a checkpoint into a new workspace, new agent, and new session.
+- Agent and session inspection.
+- Checkpoint-backed node, checkout, report, and branch flows.
+- Consistent CLI discoverability through `openclaw steprollback --help`.
 
-Read-only tools should be filtered out. For example:
+### Out of Scope
 
-- `read` should not create a checkpoint
-- clearly read-only shell commands such as `ls`, `find`, or `git status` should not create checkpoints
+- Sandbox-aware checkpoint capture and restore.
+- Environment reproduction beyond the current baseline workspace and session contract.
+- Cross-machine checkpoint portability or synchronization.
+- Capture of external side effects such as databases, remote APIs, or third-party systems.
+- Mutation of the user's real Git history.
+- Continue without a prompt.
 
-This automatic path is the primary path, so users do not need to create manual snapshots before every tool invocation.
+### Primary User Stories
 
-### 3.3 Rollback only restores in place
+- As a user, I want checkpoints to be created automatically when tools change state so I do not need to snapshot manually.
+- As a user, I want to inspect the checkpoint timeline for a session and understand what historical state is available.
+- As a user, I want to rollback to a checkpoint for investigation or recovery without accidentally turning rollback into a fork.
+- As a user, I want to continue from a checkpoint into an isolated child branch so I can explore a new direction safely.
+- As an operator, I want lineage and status views so I can understand how sessions, checkpoints, rollbacks, and branches relate.
 
-`rollback` is responsible for restoring the source session / source workspace to the chosen checkpoint so the user can:
+### Key User Flows
 
-- inspect a historical state
-- review a failure point
-- pause at a previous state for analysis
+- Normal execution: the user runs an agent, state-changing tool calls automatically create checkpoints, and read-only calls do not.
+- Historical inspection: the user lists checkpoints, opens a checkpoint detail view, and chooses a point to recover or branch from.
+- Source-side recovery: the user runs rollback to restore source-side state and verifies state through rollback-status and reports.
+- Clean branching: the user continues from a checkpoint with a required prompt, producing a child workspace, child agent, and child session with traceable lineage.
+- Derived branching workflows: the user discovers checkpoint-backed nodes and uses checkout or branch views without changing the core contract.
 
-`rollback` does not:
+### Functional Requirements
 
-- create a new agent
-- create a new workspace
-- create a new session
+- The system must automatically create a checkpoint before each state-changing tool call and skip read-only calls.
+- The system must expose checkpoint list and detail views for a specific agent and session.
+- Each checkpoint must record enough information to recover a workspace snapshot, a closed transcript prefix, and lineage metadata.
+- Rollback must target an existing checkpoint and restore the source-side historical state without creating a new branch artifact.
+- Rollback must keep the parent workspace untouched by default and support explicit in-place workspace restoration when requested.
+- Rollback-status must show whether a session is in a post-rollback state and which checkpoint was last restored.
+- Continue must require both a checkpoint and a prompt.
+- Continue must create a new workspace, a new agent, and a new session, materialized from the selected checkpoint.
+- Continue must rebuild the child session from the checkpoint transcript prefix, append the new prompt, and then resume execution through the normal child-agent path.
+- Continue must copy only the safe, schema-valid subset of parent agent configuration needed to run the child branch.
+- Agent and session inspection must expose enough summary metadata to locate active sessions, checkpoints, and lineage relationships.
+- Node, checkout, report, and branch flows must remain checkpoint-backed and queryable without changing the checkpoint, rollback, or continue semantics.
 
-### 3.4 Continue is the only fork operation
+### Non-Functional Requirements
 
-Only `continue` performs the real "keep evolving from here" operation.
+- Safety: write operations must fail cleanly, surface stable error codes, and avoid partial corruption of parent state.
+- Traceability: checkpoints, rollbacks, and branches must remain searchable and lineage-linked.
+- Performance: checkpoint queries should remain fast enough for routine interactive use.
+- Discoverability: the CLI should be easy to explore without requiring the PRD to duplicate command help.
+- Compatibility: plugin behavior must respect current OpenClaw schema and configuration rules.
+- Privacy: logs and user-facing output must avoid exposing secrets or auth material.
 
-`continue` must obey all of the following:
+### Acceptance Criteria
 
-- it must explicitly target a checkpoint
-- it must explicitly require `--prompt`
-- it must create a new workspace
-- it must create a new agent
-- it must create a new session
+- State-changing tool calls automatically create checkpoints, while read-only calls do not.
+- A user can list checkpoints for a session and inspect a single checkpoint in detail.
+- `rollback` restores the source side only and does not create a child workspace, child agent, or child session.
+- By default, `rollback` does not rewrite the parent workspace; explicit in-place restore remains opt-in.
+- `rollback-status` accurately reports post-rollback state for a session.
+- `continue` without `--prompt` fails with a stable, user-actionable error.
+- `continue` from a checkpoint creates a new workspace, new agent, and new session.
+- The child session contains the checkpoint transcript prefix plus the new prompt, and the parent side remains untouched.
+- Agent, session, node, checkout, report, and branch surfaces remain available and lineage-aware.
 
-The new branch is built as follows:
+### Success Metrics
 
-- new workspace: materialized from the checkpoint file snapshot
-- new agent: copied from a whitelist of parent agent configuration, without reusing the parent agentDir
-- new session: rebuilt from the checkpoint transcript prefix, using a new session name / id
-- new prompt: appended as the next user input in the new session
-- child execution: resumed through the standard `openclaw agent --agent <child-agent> --session-id <child-session> --message "..."` flow once the child session exists
+- Automatic checkpoint creation succeeds at a high stable rate on eligible tool calls.
+- Checkpoint list and detail queries remain reliably fast in typical session sizes.
+- Continue succeeds at creating child branches at a high stable rate with no parent-state damage.
+- Rollback recovery succeeds without unintended branch creation.
+- Lineage across checkpoints, rollbacks, nodes, checkouts, and branches is traceable and debuggable.
 
-The agent-config whitelist for `continue` must stay schema-safe:
+## 6. Phase 2: Sandbox Expansion
 
-- allow: `model`, `params`, `identity`, `groupChat`, `sandbox`, `runtime`, `tools`, `heartbeat`, and `subagents.allowAgents`
-- do not copy: `models`, `compaction`, `maxConcurrent`, `workspaceRoot`, `cwd`, `root`, or unsupported `subagents.*` keys
+### Vision
 
-### 3.5 Continue must not pollute the parent agent
+Extend SecureStepClaw from workspace-and-session recovery into sandbox-aware execution history. A checkpoint should remain the same product concept, but when the agent is running in a supported sandbox, the system should also capture enough sandbox context to restore or reproduce execution fidelity safely, predictably, and within explicit policy boundaries.
 
-`continue` must not modify any of the following on the parent side:
+### Goals
 
-- parent workspace
-- parent session store
-- parent agentDir
-- parent bindings
-- parent runtime locks / cursor / counters
+- Make checkpoint capture aware of sandbox-backed execution environments.
+- Support sandbox-aware rollback and continue while preserving the Phase 1 contract.
+- Reproduce the execution environment where provider capabilities allow it.
+- Introduce a provider abstraction so multiple sandbox backends can participate under one product model.
+- Add lifecycle, policy, observability, and cost controls needed for sandbox-backed history.
 
-Continue is a fork, not an in-place resume of the parent agent.
+### User Stories
 
-## 4. Product Goals
+- As a user, I want a checkpoint from a sandboxed run to preserve not just files but the relevant execution environment so follow-up work behaves predictably.
+- As a user, I want continue to create an isolated child sandbox when possible so a branch starts from the same practical environment as the checkpoint.
+- As an operator, I want the system to tell me when full sandbox restoration is possible, partially reproducible, or unavailable.
+- As an operator, I want retention, cleanup, quota, and cost controls so sandbox-backed history remains sustainable.
+- As a security owner, I want explicit rules for secrets, mounts, and external resources so sandbox capture does not over-collect sensitive state.
 
-### 4.1 P0 Goals
+### Key Workflows
 
-P0 must provide:
+- Sandbox checkpoint capture: a state-changing tool call in a supported sandbox records the normal Phase 1 checkpoint plus sandbox metadata and provider-backed snapshot references where allowed.
+- Sandbox rollback: rollback restores source-side state and, when requested and supported, re-materializes the checkpoint environment with the correct sandbox fidelity level.
+- Sandbox continue: continue creates a child workspace, child agent, child session, and child sandbox materialization path derived from the checkpoint.
+- Ephemeral clone workflow: the system materializes a short-lived sandbox clone for inspection, diffing, replay, or branch startup without mutating the parent sandbox.
+- Sandbox lifecycle workflow: operators can inspect, stop, expire, extend, and destroy sandbox-backed materializations without breaking checkpoint lineage.
+- Degraded restore workflow: when full sandbox restoration is not possible, the system restores the Phase 1 baseline state and clearly reports the fidelity gap.
 
-- automatic checkpoints on state-changing tool calls
-- checkpoint list and detail queries
-- rollback to a chosen checkpoint
-- rollback status queries
-- continue that forks a new workspace / new agent / new session from a checkpoint
-- agent / session inspection commands
-- checkpoint-backed node / checkout / report / branch commands
-- a root `openclaw steprollback --help` overview plus `--json` on commands that declare it
+### Sandbox State Model
 
-### 4.2 P1 Goals
+The sandbox state model should separate four layers so the product can capture and restore them independently based on provider support:
 
-- stronger retention / prune policies
-- better lineage visualization
-- better support for group / topic / custom sessions
-- better support for sandbox workspaces
-- richer diagnostics and metrics
-
-## 5. Non-Goals
-
-P0 does not include:
-
-- cross-machine checkpoint synchronization
-- capturing database, remote API, or external side effects
-- modifying the user's real project Git history
-- copying bindings by default
-- reusing the source agentDir
-- running continue without a prompt
-
-## 6. CLI Overview
-
-### 6.1 Core Commands
-
-| Command | Type | Semantics |
+| Layer | Purpose | Typical Source |
 | --- | --- | --- |
-| `openclaw steprollback --help` | Read | Show an overview of all registered commands and flags |
-| `openclaw steprollback setup` | Write | Initialize plugin directories and config |
-| `openclaw steprollback status` | Read | Show plugin state and runtime flags |
-| `openclaw steprollback agents` | Read | Show agent summaries |
-| `openclaw steprollback sessions --agent <agentId>` | Read | Show sessions for an agent |
-| `openclaw steprollback checkpoints --agent <agentId> --session <sessionId>` | Read | Show checkpoint list for a session |
-| `openclaw steprollback checkpoint --checkpoint <checkpointId>` | Read | Show one checkpoint in detail |
-| `openclaw steprollback rollback --agent <agentId> --session <sessionId> --checkpoint <checkpointId>` | Write | Restore the source session / workspace in place |
-| `openclaw steprollback rollback-status --agent <agentId> --session <sessionId>` | Read | Show rollback state |
-| `openclaw steprollback continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt \"...\" [--new-agent <agentId>] [--clone-auth <mode>] [--log]` | Write | Fork a new workspace / new agent / new session from a checkpoint |
-| `openclaw steprollback nodes --agent <agentId> --session <sessionId>` | Read | List checkpoint-backed nodes that can be checked out |
-| `openclaw steprollback checkout --agent <agentId> --source-session <sessionId> --entry <entryId> [--continue] [--prompt \"...\"]` | Write | Create a new session from a checkpoint-backed entry |
-| `openclaw steprollback report --rollback <rollbackId>` | Read | Show a rollback report |
-| `openclaw steprollback branch --branch <branchId>` | Read | Show a checkout branch record |
+| Workspace state | Recover project files and related checkpointed filesystem state | SecureStepClaw snapshot data |
+| Session state | Rebuild the closed transcript prefix and lineage | OpenClaw session history plus checkpoint metadata |
+| Environment descriptor | Reproduce the sandbox definition, image, toolchain, mounts, and policy envelope | Provider metadata plus plugin-managed manifest |
+| Provider-native snapshot handle | Fast-path restore or clone when the backend supports native snapshotting | Sandbox provider API |
 
-### 6.2 Auxiliary Commands
+### What Must Be Captured / Restored / Materialized
+
+Must be captured:
 
-The following commands are auxiliary to the main checkpoint -> continue flow and must not redefine the main product semantics:
+- Workspace snapshot within approved capture boundaries.
+- Closed transcript prefix and lineage metadata.
+- Sandbox identity, provider, base image or template reference, and capability flags.
+- Environment descriptor needed to reproduce the sandbox where supported, including runtime versioning, declared mounts, policy profile, and reproducibility metadata.
+- Snapshot policy outcome for each checkpoint, including whether the checkpoint is full-fidelity, reproducible, or filesystem-only.
+
+Must be restored or materialized when supported:
 
-- `nodes`
-- `checkout`
-- `branch`
-- `report`
+- Checkpoint workspace state.
+- Child session transcript prefix and prompt append behavior identical to Phase 1.
+- Sandbox configuration required to launch a compatible environment.
+- Provider-native clone or restore path for eligible checkpoints.
+- Lineage links between the checkpoint, any restored sandbox instance, and any child branch created from it.
 
-They must not replace the primary path:
+May be materialized as best-effort rather than exact restore:
 
-- state-changing tool call -> automatic checkpoint
-- continue -> prompt-required fork into a new agent
+- Package caches, downloaded dependencies, and other performance-oriented artifacts.
+- Non-critical environment accelerators that do not change product semantics.
 
-## 7. User Flows
+Must not be captured by default:
 
-### 7.1 Main flow: checkpoint -> continue
+- Secrets stored outside approved plugin or provider mechanisms.
+- Arbitrary host files outside allowed workspace or mount policy.
+- External service state, network side effects, or remote system mutations.
+- Provider credentials or auth material in logs, reports, or user-visible command output.
 
-1. The user runs the parent agent normally.
-2. The plugin automatically creates a checkpoint before each state-changing tool call.
-3. The user selects a historical checkpoint from `checkpoints`.
-4. The user runs:
+### What Is Explicitly Out of Scope
 
-```bash
-openclaw steprollback continue \
-  --agent <parent-agent> \
-  --session <parent-session> \
-  --checkpoint <checkpoint-id> \
-  --prompt "..."
-```
+- Guaranteeing bit-for-bit identical replay across all providers.
+- Capturing live network state or external system side effects.
+- Universal restore of unsupported provider features.
+- Long-lived sandbox preservation without retention limits.
+- Silent fallback that hides when sandbox fidelity has degraded.
 
-5. The plugin creates:
-   - a new workspace
-   - a new agent
-   - a new session
-6. The plugin rebuilds the child transcript prefix and then resumes the child through the standard `openclaw agent` message path.
+### Provider Model / Compatibility Expectations
 
-### 7.2 Auxiliary flow: rollback
+Phase 2 should define a provider abstraction with explicit capability discovery and compatibility tiers:
 
-1. The user chooses a checkpoint.
-2. The user runs `rollback`.
-3. The source session / source workspace is restored in place.
-4. The user inspects, compares, or analyzes the historical state.
+- Tier 1: full sandbox snapshot and clone. The provider can restore or fork from a checkpoint with high fidelity using native snapshotting.
+- Tier 2: reproducible materialization. The provider cannot restore a full snapshot, but can recreate a compatible environment from a saved descriptor plus workspace snapshot.
+- Tier 3: filesystem-only fallback. The provider cannot restore meaningful environment state, so the system falls back to the Phase 1 contract and surfaces that downgrade clearly.
 
-Rollback is not a fork operation.
+Provider integrations should expose at least:
 
-## 8. Detailed CLI Requirements
+- Provider identifier and version.
+- Supported snapshot fidelity tier.
+- Clone, restore, and cleanup capabilities.
+- Limits on mounts, environment variables, storage, and network policy.
+- The tradeoff envelope between fidelity, startup latency, storage growth, and provider cost.
+- Cost and quota signals needed for safe planning.
 
-### 8.1 Common Rules
+### Security and Compliance Constraints
 
-All commands follow:
+- Sandbox snapshot policy must be allowlist-based, not capture-everything by default.
+- Secret handling must distinguish between reproducible environment definition and secret injection at runtime.
+- Secret values must never be written into checkpoint payloads, logs, reports, or lineage views.
+- Mount capture must respect workspace and sandbox policy boundaries and exclude disallowed host paths.
+- Continue and rollback must preserve isolation boundaries between parent and child sandboxes.
+- Provider-specific security controls must be surfaced as capability metadata rather than hidden implementation details.
 
-```bash
-openclaw steprollback <command> [flags]
-```
+### Operational Controls: TTL, Retention, Cleanup, Quotas, Diagnostics, Metrics
 
-Common requirements:
+- Lifecycle controls: operators should be able to inspect, stop, extend, expire, and destroy sandbox-backed artifacts and materialized clones.
+- TTL: sandbox-backed artifacts should support explicit time-to-live policies for snapshots, temporary clones, and materialized environments.
+- Retention: retention should be configurable by age, count, lineage depth, provider tier, and storage cost class.
+- Cleanup: the system should provide safe cleanup of expired or orphaned snapshots, temporary sandboxes, and unused materializations.
+- Quotas: operators should be able to cap snapshot count, storage consumption, clone concurrency, and provider spend.
+- Diagnostics: every sandbox-backed checkpoint should expose capture mode, restore mode, provider outcome, and actionable failure reasons.
+- Metrics: the system should track capture success rate, restore success rate, clone latency, storage consumption, cleanup efficiency, degraded-fidelity rate, and per-provider cost.
 
-- `openclaw steprollback --help` must show an overview of all registered subcommands and flags
-- `openclaw steprollback <command> --help` remains the command-specific help path
-- most commands default to human-readable tables or field/value output
-- `status` currently returns pretty-printed JSON directly without a separate `--json` flag
-- commands that declare `--json` must support it
-- stable error codes for all write commands
-- atomic or cleanable failure behavior for all write commands
-- plugin commands only appear after `openclaw.json` passes current schema validation
-- all path resolution must respect:
-  - `OPENCLAW_HOME`
-  - `OPENCLAW_STATE_DIR`
-  - `OPENCLAW_CONFIG_PATH`
+### Failure Modes and Fallback Behavior
 
-### 8.2 `status`
+- If provider-native snapshot capture fails, the system should still preserve the Phase 1 checkpoint when possible and mark the sandbox portion as degraded.
+- If full sandbox restoration is unavailable, rollback and continue should fall back to reproducible materialization when supported.
+- If reproducible materialization is also unavailable, rollback and continue should fall back to the Phase 1 workspace-and-session contract and report the fidelity loss explicitly.
+- If quota, TTL, or policy limits block sandbox capture, the checkpoint should still be recorded with the correct capability state rather than failing silently.
+- If secrets or restricted mounts cannot be restored, the system should require fresh runtime injection rather than attempting unsafe persistence.
+- If provider cleanup fails, the system should retain enough diagnostics and lineage metadata to allow later remediation.
 
-Purpose:
+### Acceptance Criteria
 
-- show whether the plugin is enabled
-- show whether the runtime is gateway-mode-only
-- show whether continue prompts are allowed
+- A sandbox-backed checkpoint records both the Phase 1 checkpoint data and sandbox capability metadata.
+- The system classifies each sandbox-backed checkpoint by restoration fidelity and surfaces that status to users and operators.
+- Continue from a sandbox-backed checkpoint preserves the Phase 1 contract while creating a child sandbox path when provider support exists.
+- Rollback from a sandbox-backed checkpoint never mutates the parent into a branch and reports any sandbox fidelity downgrade clearly.
+- Environment reproduction succeeds on supported providers using either native snapshot restore or reproducible materialization.
+- Secrets and disallowed mounts are excluded from checkpoint payloads and user-visible diagnostics.
+- Retention, TTL, quota, and cleanup controls operate on sandbox-backed artifacts without breaking checkpoint lineage.
+- Metrics and diagnostics are sufficient to explain provider failures, degraded restores, and cost hot spots.
 
-Command:
+### Risks, Dependencies, and Open Questions
 
-```bash
-openclaw steprollback status
-```
+- Provider APIs may differ substantially in snapshot fidelity, mount behavior, secret handling, and cleanup guarantees.
+- Environment reproducibility may depend on base image pinning, package manager determinism, and provider support for reusable templates.
+- Capturing too little state weakens reproducibility; capturing too much creates security and cost risk.
+- Storage growth and clone latency may increase sharply for large workspaces or dependency-heavy environments.
+- Open questions include how to standardize lineage across provider-native snapshot IDs, which sandbox fields belong in the stable provider contract, and what operator defaults should apply when cost and fidelity goals conflict.
 
-Suggested output fields:
+## 7. CLI and Documentation Principles
 
-- `pluginId`
-- `enabled`
-- `gatewayModeOnly`
-- `allowContinuePrompt`
+- The CLI is the operational surface; the PRD defines product behavior, not exhaustive command syntax.
+- Command discovery should live primarily in `openclaw steprollback --help` and command-specific help output.
+- Documentation should explain product concepts, invariants, workflows, and operator expectations before listing command details.
+- Output formats should be human-readable by default and structured where automation needs stable machine-readable data.
+- Product terminology should remain consistent across docs, CLI help, reports, and lineage views, especially for checkpoint, rollback, continue, branch, sandbox, and fidelity states.
+- Phase 2 additions should extend existing terms rather than introduce parallel concepts that weaken the checkpoint or continue contract.
 
-### 8.3 `setup`
+## 8. Rollout Plan / Milestones
 
-Purpose:
+### Milestone 1: Phase 1 Baseline Hardening
 
-- initialize plugin state directories
-- patch the plugin entry into `openclaw.json`
+- Keep the current shipping checkpoint, rollback, continue, inspection, and checkpoint-backed branch flows stable.
+- Tighten acceptance coverage around parent-state safety, prompt-required continue, rollback semantics, and lineage visibility.
+- Ensure product docs and CLI help align on the same contract.
 
-Command:
+### Milestone 2: Sandbox Metadata Foundation
 
-```bash
-openclaw steprollback setup [--base-dir <path>] [--dry-run] [--json]
-```
+- Introduce provider abstraction, capability discovery, and sandbox metadata capture.
+- Ship checkpoint fidelity classification and degraded-mode reporting without changing the Phase 1 contract.
+- Add initial diagnostics, metrics, and cleanup hooks for sandbox-backed artifacts.
 
-Behavior:
+### Milestone 3: Sandbox Restore and Continue
 
-- create default directories
-- write `plugins.entries.step-rollback`
-- return `restartRequired`
+- Add provider-native restore and clone paths where supported.
+- Add reproducible materialization for providers that cannot restore native snapshots.
+- Preserve Phase 1 semantics while adding sandbox-backed rollback and continue behavior.
 
-### 8.5 `agents`
+### Milestone 4: Operational Readiness
 
-Command:
-
-```bash
-openclaw steprollback agents [--json]
-```
-
-Purpose:
-
-- list manageable agents
-- show summary lineage information for parent / child relationships
-
-Suggested output fields:
-
-- `agentId`
-- `workspacePath`
-- `agentDir`
-- `sessionCount`
-- `checkpointCount`
-- `derivedFrom`
-
-### 8.6 `sessions`
-
-Command:
-
-```bash
-openclaw steprollback sessions --agent <agentId> [--json]
-```
-
-Purpose:
-
-- show sessions under the target agent
-
-Suggested output fields:
-
-- `sessionId`
-- `sessionKey`
-- `updatedAt`
-- `checkpointCount`
-- `latestCheckpointId`
-
-### 8.7 `checkpoints`
-
-Command:
-
-```bash
-openclaw steprollback checkpoints --agent <agentId> --session <sessionId> [--json]
-```
-
-Purpose:
-
-- list checkpoints for a session
-
-Suggested output fields:
-
-- `checkpointId`
-- `entryId`
-- `turnIndex`
-- `gitCommit`
-- `createdAt`
-- `workspaceDigest`
-- `summary`
-
-### 8.8 `checkpoint`
-
-Command:
-
-```bash
-openclaw steprollback checkpoint --checkpoint <checkpointId> [--json]
-```
-
-Purpose:
-
-- show one checkpoint in detail
-
-Suggested output fields:
-
-- `checkpointId`
-- `sourceAgentId`
-- `sourceSessionId`
-- `entryId`
-- `turnIndex`
-- `gitCommit`
-- `workspaceDigest`
-- `lineage`
-
-### 8.9 `rollback`
-
-Command:
-
-```bash
-openclaw steprollback rollback \
-  --agent <agentId> \
-  --session <sessionId> \
-  --checkpoint <checkpointId> \
-  [--json]
-```
-
-Purpose:
-
-- restore the source workspace / source session in place
-
-Strict constraints:
-
-- no new workspace is created
-- no new agent is created
-- no new session is created
-
-Suggested output fields:
-
-- `ok`
-- `agentId`
-- `sessionId`
-- `checkpointId`
-- `rollbackId`
-
-### 8.10 `rollback-status`
-
-Command:
-
-```bash
-openclaw steprollback rollback-status --agent <agentId> --session <sessionId> [--json]
-```
-
-Purpose:
-
-- show whether the source session is currently in a post-rollback state
-
-Suggested output fields:
-
-- `rollbackInProgress`
-- `awaitingContinue`
-- `lastRollbackCheckpointId`
-
-### 8.11 `continue`
-
-Command:
-
-```bash
-openclaw steprollback continue \
-  --agent <parent-agent> \
-  --session <parent-session> \
-  --checkpoint <checkpointId|latest> \
-  --prompt "..." \
-  [--new-agent <new-agent-id>] \
-  [--clone-auth auto|always|never] \
-  [--log] \
-  [--json]
-```
-
-Purpose:
-
-- fork a new child agent from a checkpoint
-
-Hard constraints:
-
-- `--prompt` is required
-- continue without a prompt is not allowed
-- continue must not mutate the parent agent
-
-Core behavior:
-
-1. Resolve the checkpoint.
-2. Generate a new `agentId`.
-3. Create a new workspace:
-   - materialize from the checkpoint snapshot
-   - do not reuse the parent workspace
-4. Create a new agentDir:
-   - copy a whitelist of required parent configuration
-   - do not reuse the parent agentDir
-   - do not copy bindings
-   - keep the copied agent entry within the current OpenClaw schema
-5. Create a new session:
-   - assign a new `sessionId` / `sessionKey`
-   - rebuild the transcript from the checkpoint prefix
-   - append the new prompt as the next input
-6. Resume the child through the standard `openclaw agent` message flow using the new `agentId` and `sessionId`.
-7. Return child agent / workspace / session information.
-
-Suggested output fields:
-
-- `ok`
-- `parentAgentId`
-- `newAgentId`
-- `newWorkspacePath`
-- `newSessionId`
-- `newSessionKey`
-- `checkpointId`
-
-Failure cases must include at least:
-
-- `ERR_CHECKPOINT_NOT_FOUND`
-- `ERR_PROMPT_REQUIRED`
-- `ERR_AGENT_ALREADY_EXISTS`
-- `ERR_WORKSPACE_MATERIALIZE_FAILED`
-- `ERR_AGENTDIR_CLONE_FAILED`
-- `ERR_SESSION_REBUILD_FAILED`
-- `ERR_CONFIG_WRITE_FAILED`
-
-### 8.12 `nodes`
-
-Command:
-
-```bash
-openclaw steprollback nodes --agent <agentId> --session <sessionId> [--json]
-```
-
-Purpose:
-
-- list checkpoint-backed nodes that can be used with `checkout`
-
-Suggested output fields:
-
-- `entryId`
-- `nodeIndex`
-- `toolName`
-- `checkoutAvailable`
-- `createdAt`
-
-### 8.13 `checkout`
-
-Command:
-
-```bash
-openclaw steprollback checkout \
-  --agent <agentId> \
-  --source-session <sessionId> \
-  --entry <entryId> \
-  [--continue] \
-  [--prompt "..."] \
-  [--json]
-```
-
-Purpose:
-
-- create a new session from a checkpoint-backed entry
-- optionally continue immediately when `--continue` is provided
-
-Suggested output fields:
-
-- `branchId`
-- `newSessionId`
-- `newSessionKey`
-- `continued`
-- `usedPrompt`
-
-### 8.14 `report`
-
-Command:
-
-```bash
-openclaw steprollback report --rollback <rollbackId> [--json]
-```
-
-Purpose:
-
-- show one rollback report by id
-
-Suggested output fields:
-
-- `rollbackId`
-- `result`
-- `message`
-- `checkpointId`
-- `createdAt`
-
-### 8.15 `branch`
-
-Command:
-
-```bash
-openclaw steprollback branch --branch <branchId> [--json]
-```
-
-Purpose:
-
-- show one checkout branch record by id
-
-Suggested output fields:
-
-- `branchId`
-- `sourceAgentId`
-- `sourceSessionId`
-- `sourceEntryId`
-- `newSessionId`
-- `createdAt`
-
-## 9. Data Models
-
-### 9.1 CheckpointRecord
-
-```json
-{
-  "checkpointId": "cp_000123",
-  "sourceAgentId": "main",
-  "sourceSessionId": "sess_abc",
-  "sourceSessionKey": "agent:main:main",
-  "entryId": "entry_42_assistant",
-  "turnIndex": 42,
-  "gitCommit": "7f9d1c2",
-  "workspaceDigest": "sha256:...",
-  "createdAt": "2026-03-17T09:30:00Z",
-  "lineage": {
-    "parentCheckpointId": "cp_000122"
-  }
-}
-```
-
-### 9.2 AgentForkRecord
-
-```json
-{
-  "parentAgentId": "main",
-  "parentSessionId": "sess_abc",
-  "checkpointId": "cp_000123",
-  "newAgentId": "main-cp-a1b2",
-  "newWorkspacePath": "...",
-  "newSessionId": "sess_new",
-  "newSessionKey": "agent:main-cp-a1b2:main",
-  "createdAt": "2026-03-17T09:31:00Z"
-}
-```
-
-### 9.3 RollbackStatus
-
-```json
-{
-  "agentId": "main",
-  "sessionId": "sess_abc",
-  "rollbackInProgress": false,
-  "awaitingContinue": false,
-  "lastRollbackCheckpointId": "cp_000123"
-}
-```
-
-## 10. Storage Layout
-
-Recommended default root:
-
-```text
-${OPENCLAW_STATE_DIR:-~/.openclaw}/plugins/step-rollback/
-```
-
-Directory layout:
-
-```text
-step-rollback/
-  checkpoints/
-  registry/
-  runtime/
-  reports/
-  _git/
-```
-
-Requirements:
-
-- checkpoint data and fork records must be searchable
-- Git shadow snapshots must remain isolated from the user's real repository
-
-## 11. State Machines
-
-### 11.1 Checkpoint
-
-```text
-tool call detected
-  -> create snapshot
-  -> persist metadata
-  -> ready
-```
-
-### 11.2 Rollback
-
-```text
-checkpoint selected
-  -> restore source workspace
-  -> restore source runtime state
-  -> rollback ready
-```
-
-### 11.3 Continue
-
-```text
-checkpoint selected
-  -> validate prompt
-  -> create new workspace
-  -> create new agent
-  -> create new session
-  -> append prompt
-  -> child agent ready
-```
-
-## 12. Consistency Rules
-
-- a checkpoint is a historical snapshot, not a branch entity
-- continue is the branch operation
-- rollback must not secretly create a new agent
-- continue must not secretly mutate the parent agent
-- a new agent must never reuse the parent agentDir
-- a new session must always use a new session name / id
-- checkpoint transcript data must be a closed prefix, never an arbitrary text truncation
-
-## 13. Security and Privacy
-
-- the plugin is high-trust code and should only be installed from trusted sources
-- default directories should use minimum necessary permissions
-- tokens, secrets, and auth profile contents must not appear in logs or CLI output
-- `clone-auth` must follow a minimum-copy strategy
-- bindings are not copied by default
-
-## 14. Success Metrics
-
-- automatic checkpoints on state-changing tool calls succeed at a high stable rate
-- checkpoint queries remain fast
-- continue succeeds at creating child agents at a high stable rate
-- continue causes zero damage to the parent agent
-- lineage across new workspace / new agent / new session is traceable
-
-## 15. Acceptance Criteria
-
-- state-changing tool calls automatically create checkpoints, while read-only calls do not create checkpoints or new agents
-- `openclaw steprollback --help` shows the registered command and flag overview
-- `checkpoints` shows automatically created checkpoints
-- `rollback` only restores the source side and does not create forks
-- `continue` without `--prompt` must fail
-- `continue --prompt "..."` creates:
-  - a new workspace
-  - a new agent
-  - a new session
-- the child agent inherits only the necessary parent configuration and does not reuse `agentDir`
-- the child session contains only the checkpoint transcript prefix plus the new prompt
-- the parent agent / parent workspace / parent session are not polluted by continue
-- all write commands support `--json`
-- all failure cases return stable error codes
+- Add TTL, retention, quota, and cleanup policies for sandbox-backed history.
+- Add observability for capture success, restore success, latency, degraded fidelity, and cost.
+- Define production guardrails, default policies, and operator playbooks for supported providers.
