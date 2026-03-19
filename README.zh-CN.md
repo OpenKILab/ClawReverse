@@ -1,66 +1,60 @@
 # ClawReverse
 
-通过 `openclaw reverse` 为 OpenClaw 会话提供安全的 checkpoint、rollback 和干净的分支继续能力。
+[English](README.md) | 简体中文
 
-ClawReverse 是一个 OpenClaw 原生插件，提供 `openclaw reverse` 命令，用来保存 checkpoint、恢复干净的 workspace 状态，并基于已有进度继续推进，而不是每次从头开始。
+为 OpenClaw 会话提供检查点暂存、回退与安全分支能力，而不必丢掉已经取得的进展。
 
-## 使用场景
+ClawReverse 是一个 OpenClaw 原生插件，提供 `openclaw reverse` 命令，用于管理 checkpoint、恢复干净的 workspace 状态，并从一个已知可用的历史点继续任务，而不是每次都从头开始。
 
-ClawReverse 专为两类任务执行场景设计，帮你高效管理任务，解决重复执行问题：
+## 为什么使用 ClawReverse？
 
-1. 任务运行中，workspace 内文件被误删、篡改，导致环境混乱，需要快速恢复至整洁、可控的初始状态。
-2. 无需完整重新运行任务，已有部分可用结果，可直接基于现有成果继续推进，大幅减少重复步骤，节省 token 消耗。
+在实际使用 OpenClaw 时，ClawReverse 能帮你解决以下痛点：
 
-## ClawReverse 能做什么
+- **AI 改乱了代码，任务卡死：** 当 OpenClaw 反复调用工具、生成一堆无用文件或错误修改导致无法继续时，你可以一键回退到干净状态，而不用删掉项目重头再来。
+- **复用长程任务进度，节省 Token：** 如果 AI 花了大量时间完美分析了整个代码库，但在写代码时出错，你可以直接从“分析完成”的节点继续，避免让它重新阅读代码浪费 Token。
 
-ClawReverse 帮你在不丢掉已有成果的前提下，把 workspace 拉回可控状态并继续推进任务。
+它能帮助你：
 
-- 在任务推进过程中保存 checkpoint。
-- 在文件误删或改乱后，回到更早的干净状态。
-- 基于已有的部分结果继续任务，而不是从头重跑。
-- 复用已经正确的结果，减少重复推演和 token 消耗。
+- 快速把 workspace回溯到可控状态
+- 保留已经有价值的中间成果
+- 以子分支方式安全试错
+- 减少重复执行和 token 消耗
 
 ## 核心概念
 
-### `checkpoint`
+可以把 ClawReverse 理解为三件事：
 
-checkpoint 是一个历史状态边界，包含 workspace snapshot、闭合的 transcript prefix，以及 lineage 元数据。它只负责保存状态，不代表分支。
+- `checkpoint`：会话的一个历史状态边界，记录 workspace snapshot、闭合的 transcript prefix 和 lineage 元数据。
+- `rollback`：把当前执行线回退到某个 checkpoint。它不会创建新的 workspace、agent 或 session。默认不会改写 parent workspace，只有在你显式要求时才会做原地恢复。
+- `continue`：从某个 checkpoint 分叉继续。它必须带 `--prompt`，并会创建新的 child agent、新的 workspace 和新的 session，而不会污染 parent。
 
-### `rollback`
 
-`rollback` 会把 source 侧回退到某个 checkpoint。它不会创建新的 workspace、agent 或 session。默认情况下它不会改写 parent workspace，只有你显式要求时才会原地恢复。
-
-### `continue`
-
-`continue` 是 fork 行为。它必须带 `--prompt`，并且会基于所选 checkpoint 创建新的 child agent、新的 workspace 和新的 session，同时不污染 parent。
-
-## 快速开始
-
-### 前置条件
+## 前置条件
 
 - Node.js 24+
-- 一个可正常使用、且 `openclaw.json` 能通过校验的 OpenClaw 环境
+- 一个可正常使用且 `openclaw.json` 能通过校验的 OpenClaw 环境
 - 对运行 OpenClaw 的机器有访问权限
 
-### 安装
+## 安装
+
+软链接安装：
 
 ```bash
 openclaw plugins install -l <path-to-repo>
 ```
 
-如果你想用复制安装而不是软链接安装，可以使用 `openclaw plugins install <path-to-repo>`。
 
-插件在 `openclaw.json` 里的配置键是 `clawreverse`，CLI 基础命令是 `openclaw reverse`。
+插件在 `openclaw.json` 中的配置键是 `clawreverse`，CLI 基础命令是 `openclaw reverse`。
 
-### 最小配置
+## 配置
 
-最快的方式：
+最快方式：
 
 ```bash
 openclaw reverse setup
 ```
 
-如果你更想手动编辑 `openclaw.json`，下面是最小可用配置：
+或者手动编辑 `openclaw.json`：
 
 ```json
 {
@@ -79,60 +73,78 @@ openclaw reverse setup
 }
 ```
 
-其余插件路径默认会落在 `~/.openclaw/plugins/clawreverse/` 下。
+其他插件路径默认位于 `~/.openclaw/plugins/clawreverse/`。
 
-### 验证安装
+## 验证安装
 
-安装或修改配置后，重启 Gateway，然后确认插件命令已经可见：
+安装完成或修改配置后，请先重启 Gateway，再确认命令已可用：
 
 ```bash
 openclaw reverse --help
 ```
 
-如果命令没有出现，先确认 `openclaw.json` 仍然能通过校验，并且 `clawreverse` 已经加入 `plugins.allow`。
+如果命令没有出现，请检查：
 
-### 一个最小 happy path
+- `openclaw.json` 是否仍能通过校验
+- `clawreverse` 是否已加入 `plugins.allow`
+- 插件条目是否处于启用状态
 
-1. 正常运行 agent，让它执行会改动状态的 tool call。
-2. 查看这个 session 的 checkpoint。
-3. 从某个 checkpoint continue 出一个新的 child 分支。
+## 常见工作流
+
+### 1) 查看可用 checkpoint
 
 ```bash
 openclaw reverse checkpoints --agent <agent-id> --session <session-id>
+```
 
+先查看当前会话有哪些可用的恢复点或分叉点。
+
+### 2) 用 `continue` 安全分叉
+
+```bash
 openclaw reverse continue \
   --agent <agent-id> \
   --session <session-id> \
   --checkpoint <checkpoint-id> \
-  --prompt "从这个历史点继续，但尝试另一种方案。"
+  --prompt "从这个历史点继续，并尝试另一种方案。"
 ```
 
-如果你想回退 parent session，而不是创建 child 分支，就使用同一组 `--agent`、`--session`、`--checkpoint` 参数执行 `rollback`。
+当你希望保留 parent session、不污染原执行线时，用 `continue`。
 
-### 查看 checkpoint tree
-
-如果你想看 parent session 和通过 `continue` 创建出来的 child branch 是怎么连接起来的，可以使用 `openclaw reverse tree`：
+### 3) 用 `rollback` 回退当前执行线
 
 ```bash
-openclaw reverse tree --agent <agent-id> --session <session-id>
+openclaw reverse rollback \
+  --agent <agent-id> \
+  --session <session-id> \
+  --checkpoint <checkpoint-id>
+```
+
+当你想把当前执行线直接拉回某个更早的干净状态，而不是创建子分支时，用 `rollback`。
+
+### 4) 用 `tree` 查看分支关系
+
+```bash
+openclaw reverse tree --agent <agent-id> --session <session-id> [--node <checkpoint>]
 ```
 
 它适合回答这些问题：
 
-- 这次视图的 root checkpoint 是哪个
-- 哪些地方发生了继续分支
+- 当前视图的根 checkpoint 是哪个
+- 哪些位置产生了 child branch
 - 一共涉及多少 nodes、sessions 和 branches
 
-如果你想把某个 checkpoint 当作树根来聚焦查看，可以使用 `--node`，也可以用它的别名 `--checkpoint`：
 
-```bash
-openclaw reverse tree \
-  --agent <agent-id> \
-  --session <session-id> \
-  --node <checkpoint-id>
-```
 
-如果你想拿到原始结构化输出，可以加 `--json`。
+
+## 排查问题
+
+### 找不到 `openclaw reverse` 命令
+
+- 安装插件或修改 `openclaw.json` 之后，先重启 Gateway
+- 检查 `clawreverse` 是否在 `plugins.allow` 中
+- 检查插件条目是否启用，配置是否仍能通过校验
+
 
 ## 验证 / 测试
 
@@ -142,9 +154,15 @@ openclaw reverse tree \
 npm test
 ```
 
+## Roadmap
+
+- ✅ checkpoint snapshot 的 PoC
+- ✅ 基于新创建的 agent 继续任务
+- [ ] 集成 sandbox 支持
+
 ## 联系方式
 
-如有问题，可通过以下邮箱联系：
+如有问题，请联系：
 
 - [wangxuhong@pjlab.org.cn](mailto:wangxuhong@pjlab.org.cn)
 - [huangbin@pjlab.org.cn](mailto:huangbin@pjlab.org.cn)
