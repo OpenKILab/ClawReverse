@@ -1,58 +1,52 @@
 # ClawReverse
 
-Checkpoint, roll back, and branch OpenClaw sessions safely with `openclaw reverse`.
+English | [简体中文](README.zh-CN.md)
 
-ClawReverse is an OpenClaw native plugin that adds the `openclaw reverse` command for saving checkpoints, restoring a clean workspace state, and continuing from useful progress instead of starting over.
+Checkpoint, restore, and branch OpenClaw sessions without throwing away useful progress.
 
-## User Scenarios
+ClawReverse is an OpenClaw native plugin that adds the `openclaw reverse` command. It helps you work with checkpoints, recover a clean workspace state, and continue from a known-good point instead of rerunning everything from scratch.
 
-ClawReverse is designed for two common task execution scenarios, helping you manage work efficiently and avoid unnecessary repetition:
+## Why use ClawReverse?
 
-1. During task execution, files in the workspace are accidentally deleted or modified, which leaves the environment messy and hard to control. You need a fast way to restore it to a clean, manageable starting state.
-2. You do not need to rerun the entire task. Some useful results already exist, and you want to continue directly from that progress, cutting down repeated steps and saving token cost.
+ClawReverse is designed to solve real-world friction when working with OpenClaw:
 
-## What ClawReverse Does
+- **The AI made a mess and got stuck:** If OpenClaw generates too many unwanted files or bad code changes and can no longer proceed, you can instantly rewind the workspace to a clean state instead of starting from scratch.
+- **Save tokens on long-running tasks:** If OpenClaw perfectly analyzes a massive codebase but fails during the coding step, you don't have to pay it to read everything again. Just branch from the exact moment the analysis finished.
 
-ClawReverse helps you recover control of the workspace without throwing away useful progress.
+In practice, it helps you:
 
-- Save checkpoints as the task moves forward.
-- Roll back to an earlier clean state after unwanted file changes.
-- Continue from existing partial results instead of restarting from scratch.
-- Reduce repeated work and token usage by reusing what is already correct.
+- recover control of the workspace quickly
+- preserve useful progress
+- branch safely for experiments
+- reduce repeated work and token usage
 
-## Core Concepts
+## Core concepts
 
-### `checkpoint`
+Think of the plugin like this:
 
-A checkpoint is a saved historical boundary: workspace snapshot, closed transcript prefix, and lineage metadata. It captures state; it does not create a branch.
+- `checkpoint`: a saved historical boundary for a session. It records the workspace snapshot, the closed transcript prefix, and lineage metadata.
+- `rollback`: rewinds the current line to an earlier checkpoint. It does not create a new workspace, agent, or session. By default, the parent workspace is left untouched unless you explicitly request an in-place restore.
+- `continue`: forks from a checkpoint. It requires `--prompt` and creates a new child agent, a new workspace, and a new session, leaving the parent untouched.
 
-### `rollback`
 
-`rollback` rewinds the source side to a checkpoint. It does not create a new workspace, agent, or session. By default it leaves the parent workspace untouched unless you explicitly request an in-place restore.
-
-### `continue`
-
-`continue` is the fork operation. It requires `--prompt` and creates a new child agent, a new workspace, and a new session from the selected checkpoint, without polluting the parent.
-
-## Quick Start
-
-### Prerequisites
+## Requirements
 
 - Node.js 24+
 - A working OpenClaw installation with a valid `openclaw.json`
 - Access to the machine that runs OpenClaw
 
-### Install
+## Install
+
+Linked install:
 
 ```bash
 openclaw plugins install -l <path-to-repo>
 ```
 
-Use `openclaw plugins install <path-to-repo>` if you want a copied install instead of a linked one.
 
 The plugin key in `openclaw.json` is `clawreverse`, and its CLI base command is `openclaw reverse`.
 
-### Minimal config
+## Configure
 
 Fastest path:
 
@@ -60,7 +54,7 @@ Fastest path:
 openclaw reverse setup
 ```
 
-If you prefer to edit `openclaw.json` yourself, this is the minimum useful plugin entry:
+Or edit `openclaw.json` manually:
 
 ```json
 {
@@ -79,27 +73,35 @@ If you prefer to edit `openclaw.json` yourself, this is the minimum useful plugi
 }
 ```
 
-Other plugin paths default under `~/.openclaw/plugins/clawreverse/`.
+Other plugin paths default to `~/.openclaw/plugins/clawreverse/`.
 
-### Verify installation
+## Verify
 
-Restart Gateway after install or config changes, then verify that the plugin is visible:
+After installation or config changes, restart Gateway and verify that the command is available:
 
 ```bash
 openclaw reverse --help
 ```
 
-If the command is missing, make sure `openclaw.json` still passes validation and `clawreverse` is allowed.
+If the command is missing, make sure:
 
-### One minimal happy-path example
+- `openclaw.json` still passes validation
+- `clawreverse` is in `plugins.allow`
+- the plugin entry is enabled
 
-1. Run your agent normally and let it make state-changing tool calls.
-2. Inspect checkpoints for the session.
-3. Continue from a checkpoint into a clean child branch.
+## Common workflows
+
+### 1) List available checkpoints
 
 ```bash
 openclaw reverse checkpoints --agent <agent-id> --session <session-id>
+```
 
+Use this to find the checkpoint you want to restore or branch from.
+
+### 2) Branch safely with `continue`
+
+```bash
 openclaw reverse continue \
   --agent <agent-id> \
   --session <session-id> \
@@ -107,44 +109,58 @@ openclaw reverse continue \
   --prompt "Continue from this point with a different approach."
 ```
 
-If you want to rewind the parent session instead of creating a child branch, use `rollback` with the same `--agent`, `--session`, and `--checkpoint` values.
+Use `continue` when you want a clean child branch without changing the parent session.
 
-### Inspect the checkpoint tree
-
-Use `openclaw reverse tree` to see checkpoint lineage across the parent session and any child branches created with `continue`.
+### 3) Rewind the current line with `rollback`
 
 ```bash
-openclaw reverse tree --agent <agent-id> --session <session-id>
-```
-
-This is useful when you want to answer questions like:
-
-- which checkpoint is the root of this view
-- where the session continued into a child branch
-- how many nodes, sessions, and branches are involved
-
-If you want to focus on one checkpoint as the tree root, pass `--node` (or `--checkpoint` as an alias):
-
-```bash
-openclaw reverse tree \
+openclaw reverse rollback \
   --agent <agent-id> \
   --session <session-id> \
-  --node <checkpoint-id>
+  --checkpoint <checkpoint-id>
 ```
 
-Add `--json` if you want raw structured output.
+Use `rollback` when you want to move the current line back to an earlier clean point instead of creating a child branch.
 
-## Verification / Tests
+### 4) Inspect branch lineage with `tree`
 
-From the repo root:
+```bash
+openclaw reverse tree --agent <agent-id> --session <session-id> [--node <checkpoint>]
+```
+
+This helps answer questions such as:
+
+- which checkpoint is the root of the current view
+- where a child branch was created
+- how many nodes, sessions, and branches are involved
+
+
+## Troubleshooting
+
+### `openclaw reverse` is not available
+
+- Restart Gateway after installing the plugin or editing `openclaw.json`.
+- Check that `clawreverse` is listed in `plugins.allow`.
+- Check that the plugin entry is enabled and the config still passes validation.
+
+
+## Test
+
+From the repository root:
 
 ```bash
 npm test
 ```
 
+## Roadmap
+
+- ✅ PoC of checkpoint snapshots
+- ✅ Continue tasks with a newly created agent
+- [ ] Integrate sandbox support
+
 ## Contact
 
-For questions or collaboration, please contact:
+For questions or collaboration:
 
 - [wangxuhong@pjlab.org.cn](mailto:wangxuhong@pjlab.org.cn)
 - [huangbin@pjlab.org.cn](mailto:huangbin@pjlab.org.cn)
