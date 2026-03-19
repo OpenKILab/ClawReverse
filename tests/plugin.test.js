@@ -277,7 +277,7 @@ test("creates checkpoints, keeps workspace untouched on rollback by default, and
 
   await fs.writeFile(path.join(fixture.workspace, "app.txt"), "broken\n", "utf8");
 
-  const listResponse = await plugin.methods["steprollback.checkpoints.list"]({
+  const listResponse = await plugin.methods["clawreverse.checkpoints.list"]({
     agentId: "main",
     sessionId: "session-1"
   });
@@ -285,7 +285,7 @@ test("creates checkpoints, keeps workspace untouched on rollback by default, and
   assert.equal(listResponse.checkpoints.length, 2);
   assert.equal(listResponse.checkpoints[0].summary, "before tool write");
 
-  const rollbackResponse = await plugin.methods["steprollback.rollback"]({
+  const rollbackResponse = await plugin.methods["clawreverse.rollback"]({
     agentId: "main",
     sessionId: "session-1",
     checkpointId: listResponse.checkpoints[0].checkpointId
@@ -297,7 +297,7 @@ test("creates checkpoints, keeps workspace untouched on rollback by default, and
   assert.equal(await fs.readFile(path.join(fixture.workspace, "app.txt"), "utf8"), "broken\n");
   assert.equal(calls.stopRun.length, 1);
 
-  const rollbackStatus = await plugin.methods["steprollback.rollback.status"]({
+  const rollbackStatus = await plugin.methods["clawreverse.rollback.status"]({
     agentId: "main",
     sessionId: "session-1"
   });
@@ -305,7 +305,7 @@ test("creates checkpoints, keeps workspace untouched on rollback by default, and
   assert.equal(rollbackStatus.awaitingContinue, false);
   assert.equal(rollbackStatus.activeHeadEntryId, "entry-1");
 
-  const continueResponse = await plugin.methods["steprollback.continue"]({
+  const continueResponse = await plugin.methods["clawreverse.continue"]({
     agentId: "main",
     sessionId: "session-1",
     checkpointId: listResponse.checkpoints[0].checkpointId,
@@ -322,7 +322,7 @@ test("creates checkpoints, keeps workspace untouched on rollback by default, and
   assert.equal(calls.forkContinue[0].checkpoint.checkpointId, listResponse.checkpoints[0].checkpointId);
   assert.equal(calls.forkContinue[0].prompt, "Retry, but inspect dependencies first.");
 
-  const report = await plugin.methods["steprollback.reports.get"]({
+  const report = await plugin.methods["clawreverse.reports.get"]({
     rollbackId: rollbackResponse.rollbackId
   });
 
@@ -337,7 +337,7 @@ test("creates checkpoints, keeps workspace untouched on rollback by default, and
   const branchedState = await plugin.services.runtimeCursorManager.get("main-cp-0001", "session-child-1");
   assert.equal(branchedState.currentRunId, "run-child-1");
 
-  const branch = await plugin.methods["steprollback.session.branch.get"]({
+  const branch = await plugin.methods["clawreverse.session.branch.get"]({
     branchId: continueResponse.branchId
   });
   assert.equal(branch.branchType, "agent");
@@ -393,7 +393,7 @@ test("builds checkpoint summaries from tool targets and exec commands", async ()
     }
   });
 
-  const { checkpoints } = await plugin.methods["steprollback.checkpoints.list"]({
+  const { checkpoints } = await plugin.methods["clawreverse.checkpoints.list"]({
     agentId: "main",
     sessionId: "session-summary"
   });
@@ -476,7 +476,7 @@ test("skips checkpoints for read-only tools and read-only exec commands", async 
   assert.equal(findCheckpoint, null);
   assert.ok(writeCheckpoint);
 
-  const { checkpoints } = await plugin.methods["steprollback.checkpoints.list"]({
+  const { checkpoints } = await plugin.methods["clawreverse.checkpoints.list"]({
     agentId: "main",
     sessionId: "session-filtered"
   });
@@ -513,21 +513,21 @@ test("repairs placeholder home paths in plugin config", async () => {
   const plugin = createStepRollbackPlugin({
     config: {
       workspaceRoots: ["/Users/you/.openclaw/workspace"],
-      checkpointDir: "/Users/you/.openclaw/plugins/step-rollback/checkpoints",
-      registryDir: "/Users/you/.openclaw/plugins/step-rollback/registry",
-      runtimeDir: "/Users/you/.openclaw/plugins/step-rollback/runtime",
-      reportsDir: "/Users/you/.openclaw/plugins/step-rollback/reports"
+      checkpointDir: "/Users/you/.openclaw/plugins/clawreverse/checkpoints",
+      registryDir: "/Users/you/.openclaw/plugins/clawreverse/registry",
+      runtimeDir: "/Users/you/.openclaw/plugins/clawreverse/runtime",
+      reportsDir: "/Users/you/.openclaw/plugins/clawreverse/reports"
     }
   });
 
   assert.equal(plugin.config.workspaceRoots[0], path.join(os.homedir(), ".openclaw", "workspace"));
   assert.equal(
     plugin.config.checkpointDir,
-    path.join(os.homedir(), ".openclaw", "plugins", "step-rollback", "checkpoints")
+    path.join(os.homedir(), ".openclaw", "plugins", "clawreverse", "checkpoints")
   );
   assert.equal(
     plugin.config.registryDir,
-    path.join(os.homedir(), ".openclaw", "plugins", "step-rollback", "registry")
+    path.join(os.homedir(), ".openclaw", "plugins", "clawreverse", "registry")
   );
 });
 
@@ -562,7 +562,7 @@ test("prunes old checkpoints when maxCheckpointsPerSession is exceeded", async (
     });
   }
 
-  const listResponse = await plugin.methods["steprollback.checkpoints.list"]({
+  const listResponse = await plugin.methods["clawreverse.checkpoints.list"]({
     agentId: "main",
     sessionId: "session-prune"
   });
@@ -629,7 +629,7 @@ test("checks out a session branch from a checkpoint entry", async () => {
 
   await fs.writeFile(path.join(fixture.workspace, "app.txt"), "broken\n", "utf8");
 
-  const checkoutResponse = await plugin.methods["steprollback.session.checkout"]({
+  const checkoutResponse = await plugin.methods["clawreverse.session.checkout"]({
     agentId: "main",
     sourceSessionId: "session-source",
     sourceEntryId: "entry-base",
@@ -644,14 +644,14 @@ test("checks out a session branch from a checkpoint entry", async () => {
   assert.equal(calls.createSession.length, 1);
   assert.equal(calls.continueRun[0].sessionId, "session-branch");
 
-  const branch = await plugin.methods["steprollback.session.branch.get"]({
+  const branch = await plugin.methods["clawreverse.session.branch.get"]({
     branchId: checkoutResponse.branchId
   });
 
   assert.equal(branch.sourceSessionId, "session-source");
   assert.equal(branch.sourceEntryId, "entry-base");
 
-  const nodes = await plugin.methods["steprollback.session.nodes.list"]({
+  const nodes = await plugin.methods["clawreverse.session.nodes.list"]({
     agentId: "main",
     sessionId: "session-source"
   });
@@ -710,7 +710,7 @@ test("builds checkpoint trees from the default root checkpoint and explicit node
     runId: "run-tree-root"
   });
 
-  const continueResponse = await plugin.methods["steprollback.continue"]({
+  const continueResponse = await plugin.methods["clawreverse.continue"]({
     agentId: "main",
     sessionId: "session-tree-root",
     checkpointId: firstCheckpoint.checkpointId,
@@ -733,7 +733,7 @@ test("builds checkpoint trees from the default root checkpoint and explicit node
     runId: "run-tree-child"
   });
 
-  const defaultTree = await plugin.methods["steprollback.session.tree"]({
+  const defaultTree = await plugin.methods["clawreverse.session.tree"]({
     agentId: "main"
   });
 
@@ -749,7 +749,7 @@ test("builds checkpoint trees from the default root checkpoint and explicit node
   assert.equal(defaultTree.tree.children[1].incomingType, "branch");
   assert.equal(defaultTree.tree.children[1].incomingReason, "continue");
 
-  const explicitTree = await plugin.methods["steprollback.session.tree"]({
+  const explicitTree = await plugin.methods["clawreverse.session.tree"]({
     nodeId: secondCheckpoint.checkpointId
   });
 
@@ -827,7 +827,7 @@ test("registers a native OpenClaw plugin and drives rollback through registered 
       },
       plugins: {
         entries: {
-          "step-rollback": {
+          "clawreverse": {
             enabled: true,
             config: {
               workspaceRoots: [fixture.workspace],
@@ -912,19 +912,19 @@ test("registers a native OpenClaw plugin and drives rollback through registered 
     const nativePlugin = createNativeStepRollbackPlugin();
     const engine = await nativePlugin.register(api);
 
-    assert.equal(nativeStepRollbackPlugin.id, "step-rollback");
-    assert.equal(engine.manifest.id, "step-rollback");
-    assert.equal(registered.methods.has("steprollback.status"), true);
-    assert.equal(registered.methods.has("steprollback.rollback"), true);
+    assert.equal(nativeStepRollbackPlugin.id, "clawreverse");
+    assert.equal(engine.manifest.id, "clawreverse");
+    assert.equal(registered.methods.has("clawreverse.status"), true);
+    assert.equal(registered.methods.has("clawreverse.rollback"), true);
     assert.equal(registered.hooks.has("session_start"), true);
     assert.equal(registered.hooks.has("before_tool_call"), true);
     assert.equal(typeof registered.hooks.get("before_tool_call").handler, "function");
     assert.equal(registered.services.length, 1);
     assert.equal(registered.clis.length, 1);
-    assert.deepEqual(registered.clis[0].meta.commands, ["steprollback"]);
+    assert.deepEqual(registered.clis[0].meta.commands, ["reverse"]);
 
     const serviceStartResult = await registered.services[0].start();
-    assert.equal(serviceStartResult.pluginId, "step-rollback");
+    assert.equal(serviceStartResult.pluginId, "clawreverse");
 
     await registered.hooks.get("session_start").handler({
       agentId: "main",
@@ -943,7 +943,7 @@ test("registers a native OpenClaw plugin and drives rollback through registered 
     await fs.writeFile(path.join(fixture.workspace, "native.txt"), "broken\n", "utf8");
 
     const checkpointResponses = [];
-    await registered.methods.get("steprollback.checkpoints.list")({
+    await registered.methods.get("clawreverse.checkpoints.list")({
       params: {
         agentId: "main",
         sessionId: "native-session"
@@ -959,7 +959,7 @@ test("registers a native OpenClaw plugin and drives rollback through registered 
 
     const checkpointId = checkpointResponses[0].payload.checkpoints[0].checkpointId;
 
-    const rollbackResponse = await registered.methods.get("steprollback.rollback")({
+    const rollbackResponse = await registered.methods.get("clawreverse.rollback")({
       params: {
         agentId: "main",
         sessionId: "native-session",
@@ -976,7 +976,7 @@ test("registers a native OpenClaw plugin and drives rollback through registered 
       true
     );
 
-    const continueResponse = await registered.methods.get("steprollback.continue")({
+    const continueResponse = await registered.methods.get("clawreverse.continue")({
       params: {
         agentId: "main",
         sessionId: "native-session",
@@ -1020,7 +1020,7 @@ test("returns Gateway-style error payloads for native RPC handlers", async () =>
     config: {
       plugins: {
         entries: {
-          "step-rollback": {
+          "clawreverse": {
             config: {
               workspaceRoots: [fixture.workspace],
               checkpointDir: fixture.checkpointDir,
@@ -1050,7 +1050,7 @@ test("returns Gateway-style error payloads for native RPC handlers", async () =>
   await createNativeStepRollbackPlugin().register(api);
 
   const responses = [];
-  await registered.get("steprollback.rollback")({
+  await registered.get("clawreverse.rollback")({
     params: {
       agentId: "main",
       sessionId: "missing-session",
@@ -1111,33 +1111,33 @@ test("setup patches openclaw.json and creates plugin directories", async () => {
     registered.clis[0].factory({ program: cliHarness.program });
 
     const output = await captureConsoleLog(async () => {
-      await cliHarness.commands.get("steprollback setup").action({});
+      await cliHarness.commands.get("reverse setup").action({});
     });
 
     assert.match(output, /configPath/);
 
     const patchedConfig = JSON.parse(await fs.readFile(fixture.configPath, "utf8"));
     assert.equal(patchedConfig.gateway.auth.mode, "token");
-    assert.deepEqual(patchedConfig.plugins.allow, ["other-plugin", "step-rollback"]);
+    assert.deepEqual(patchedConfig.plugins.allow, ["other-plugin", "clawreverse"]);
     assert.equal(patchedConfig.plugins.enabled, true);
-    assert.equal(patchedConfig.plugins.entries["step-rollback"].enabled, true);
+    assert.equal(patchedConfig.plugins.entries["clawreverse"].enabled, true);
     assert.deepEqual(
-      patchedConfig.plugins.entries["step-rollback"].config.workspaceRoots,
+      patchedConfig.plugins.entries["clawreverse"].config.workspaceRoots,
       [path.join(fixture.root, "workspace")]
     );
     assert.equal(
-      patchedConfig.plugins.entries["step-rollback"].config.checkpointDir,
-      path.join(fixture.root, "plugins", "step-rollback", "checkpoints")
+      patchedConfig.plugins.entries["clawreverse"].config.checkpointDir,
+      path.join(fixture.root, "plugins", "clawreverse", "checkpoints")
     );
 
     await fs.access(path.join(fixture.root, "workspace"));
-    await fs.access(path.join(fixture.root, "plugins", "step-rollback", "checkpoints"));
-    await fs.access(path.join(fixture.root, "plugins", "step-rollback", "registry"));
-    await fs.access(path.join(fixture.root, "plugins", "step-rollback", "runtime"));
-    await fs.access(path.join(fixture.root, "plugins", "step-rollback", "reports"));
+    await fs.access(path.join(fixture.root, "plugins", "clawreverse", "checkpoints"));
+    await fs.access(path.join(fixture.root, "plugins", "clawreverse", "registry"));
+    await fs.access(path.join(fixture.root, "plugins", "clawreverse", "runtime"));
+    await fs.access(path.join(fixture.root, "plugins", "clawreverse", "reports"));
 
     const beforeDryRun = await fs.readFile(fixture.configPath, "utf8");
-    await cliHarness.commands.get("steprollback setup").action({
+    await cliHarness.commands.get("reverse setup").action({
       baseDir: path.join(fixture.root, "dry-run-root"),
       dryRun: true
     });
@@ -1213,7 +1213,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
       },
       plugins: {
         entries: {
-          "step-rollback": {
+          "clawreverse": {
             config: {
               workspaceRoots: [fixture.workspace],
               checkpointDir: fixture.checkpointDir,
@@ -1281,7 +1281,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
 
   const cliHarness = createFakeProgram();
   registered.clis[0].factory({ program: cliHarness.program });
-  const rootHelp = cliHarness.commands.get("steprollback").helpTexts.after.join("\n");
+  const rootHelp = cliHarness.commands.get("reverse").helpTexts.after.join("\n");
 
   assert.match(rootHelp, /Command overview:/);
   assert.match(rootHelp, /setup \[--base-dir <path>\] \[--dry-run\] \[--json\]/);
@@ -1291,7 +1291,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   assert.match(rootHelp, /checkout --agent <agentId> --source-session <sessionId> --entry <entryId> \[--continue\] \[--prompt <text>\] \[--json\]/);
   assert.match(rootHelp, /report --rollback <rollbackId> \[--json\]/);
   assert.match(rootHelp, /branch --branch <branchId> \[--json\]/);
-  assert.match(rootHelp, /openclaw steprollback <command> --help/);
+  assert.match(rootHelp, /openclaw reverse <command> --help/);
 
   await registered.hooks.get("session_start").handler({
     agentId: "main",
@@ -1308,7 +1308,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   await fs.writeFile(path.join(fixture.workspace, "cli.txt"), "broken\n", "utf8");
 
   const agentsOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback agents").action({ agent: "main" });
+    await cliHarness.commands.get("reverse agents").action({ agent: "main" });
   });
   assert.match(agentsOutput, /Agent/);
   assert.match(agentsOutput, /main/);
@@ -1316,7 +1316,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   const sessionsOutput = await captureConsoleLog(async () => {
     await withEnv("NO_COLOR", undefined, async () =>
       withEnv("FORCE_COLOR", "1", async () => {
-        await cliHarness.commands.get("steprollback sessions").action({ agent: "main" });
+        await cliHarness.commands.get("reverse sessions").action({ agent: "main" });
       })
     );
   });
@@ -1329,7 +1329,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   assert.match(sessionsOutput, /\u001b\[[0-9;]*msession-cli\u001b\[0m/);
 
   const checkpointsOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback checkpoints").action({
+    await cliHarness.commands.get("reverse checkpoints").action({
       agent: "main",
       session: "session-cli"
     });
@@ -1337,7 +1337,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   assert.match(checkpointsOutput, /Checkpoint/);
   assert.match(checkpointsOutput, /entry-cli|ckpt_/);
 
-  const checkpointList = await registered.methods.get("steprollback.checkpoints.list")({
+  const checkpointList = await registered.methods.get("clawreverse.checkpoints.list")({
     params: {
       agentId: "main",
       sessionId: "session-cli"
@@ -1346,7 +1346,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   const checkpointId = checkpointList.checkpoints[0].checkpointId;
 
   const rollbackOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback rollback").action({
+    await cliHarness.commands.get("reverse rollback").action({
       agent: "main",
       session: "session-cli",
       checkpoint: checkpointId,
@@ -1358,7 +1358,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   assert.equal(
     cliGatewayCalls.some(
       (call) =>
-        call.methodName === "steprollback.rollback" &&
+        call.methodName === "clawreverse.rollback" &&
         call.params.agentId === "main" &&
         call.params.sessionId === "session-cli" &&
         call.params.checkpointId === checkpointId &&
@@ -1368,7 +1368,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   );
 
   const continueOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback continue").action({
+    await cliHarness.commands.get("reverse continue").action({
       agent: "main",
       session: "session-cli",
       checkpoint: checkpointId,
@@ -1384,7 +1384,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   assert.equal(
     cliGatewayCalls.some(
       (call) =>
-        call.methodName === "steprollback.continue" &&
+        call.methodName === "clawreverse.continue" &&
         call.params.agentId === "main" &&
         call.params.sessionId === "session-cli" &&
         call.params.checkpointId === checkpointId &&
@@ -1409,7 +1409,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   });
 
   const treeOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback tree").action({});
+    await cliHarness.commands.get("reverse tree").action({});
   });
   assert.match(treeOutput, /Root:/);
   assert.match(treeOutput, /Resolved by: default/);
@@ -1418,7 +1418,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   assert.match(treeOutput, /via continue/);
 
   const namedContinueOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback continue").action({
+    await cliHarness.commands.get("reverse continue").action({
       agent: "main",
       session: "session-cli",
       checkpoint: checkpointId,
@@ -1475,7 +1475,7 @@ const fs = require("node:fs/promises");
       },
       plugins: {
         entries: {
-          "step-rollback": {
+          "clawreverse": {
             config: {
               workspaceRoots: [fixture.workspace],
               checkpointDir: fixture.checkpointDir,
@@ -1528,7 +1528,7 @@ const fs = require("node:fs/promises");
     STEP_ROLLBACK_FAKE_GATEWAY_CAPTURE: gatewayCapturePath
   }, async () =>
     captureConsoleLog(async () => {
-      await cliHarness.commands.get("steprollback rollback-status").action({
+      await cliHarness.commands.get("reverse rollback-status").action({
         agent: "main",
         session: "session-auth"
       });
@@ -1541,7 +1541,7 @@ const fs = require("node:fs/promises");
   const capture = JSON.parse(await fs.readFile(gatewayCapturePath, "utf8"));
   assert.equal(capture.args.includes("gateway"), true);
   assert.equal(capture.args.includes("call"), true);
-  assert.equal(capture.args.includes("steprollback.rollback.status"), true);
+  assert.equal(capture.args.includes("clawreverse.rollback.status"), true);
   assert.equal(capture.args.includes("--token"), true);
   assert.equal(capture.args.includes("token-from-config"), true);
   assert.equal(capture.args.includes("--expect-final"), false);
@@ -1597,7 +1597,7 @@ const fs = require("node:fs/promises");
       },
       plugins: {
         entries: {
-          "step-rollback": {
+          "clawreverse": {
             config: {
               workspaceRoots: [fixture.workspace],
               checkpointDir: fixture.checkpointDir,
@@ -1739,7 +1739,7 @@ const fs = require("node:fs/promises");
     });
     await fs.writeFile(path.join(fixture.workspace, "continue.txt"), "broken\n", "utf8");
 
-    const checkpointList = await registered.methods.get("steprollback.checkpoints.list")({
+    const checkpointList = await registered.methods.get("clawreverse.checkpoints.list")({
       params: {
         agentId: "main",
         sessionId: mainSessionId
@@ -1747,7 +1747,7 @@ const fs = require("node:fs/promises");
     });
     const checkpointId = checkpointList.checkpoints[0].checkpointId;
 
-    await registered.methods.get("steprollback.rollback")({
+    await registered.methods.get("clawreverse.rollback")({
       params: {
         agentId: "main",
         sessionId: mainSessionId,
@@ -1759,7 +1759,7 @@ const fs = require("node:fs/promises");
       STEP_ROLLBACK_FAKE_AGENT_CAPTURE: fakeAgentCapturePath
     }, async () =>
       captureConsoleLog(async () => {
-        await cliHarness.commands.get("steprollback continue").action({
+        await cliHarness.commands.get("reverse continue").action({
           agent: "main",
           session: mainSessionId,
           checkpoint: checkpointId,
@@ -1895,7 +1895,7 @@ const fs = require("node:fs/promises");
     },
     plugins: {
       entries: {
-        "step-rollback": {
+        "clawreverse": {
           config: {
             workspaceRoots: [fixture.workspace],
             checkpointDir: fixture.checkpointDir,
@@ -1987,14 +1987,14 @@ const fs = require("node:fs/promises");
       runId: "run-migrate"
     });
 
-    const checkpointList = await registered.methods.get("steprollback.checkpoints.list")({
+    const checkpointList = await registered.methods.get("clawreverse.checkpoints.list")({
       params: {
         agentId: "main",
         sessionId: "session-migrate"
       }
     });
 
-    await cliHarness.commands.get("steprollback continue").action({
+    await cliHarness.commands.get("reverse continue").action({
       agent: "main",
       session: "session-migrate",
       checkpoint: checkpointList.checkpoints[0].checkpointId,
@@ -2109,7 +2109,7 @@ const fs = require("node:fs/promises");
     },
     plugins: {
       entries: {
-        "step-rollback": {
+        "clawreverse": {
           config: {
             workspaceRoots: [fixture.workspace],
             checkpointDir: fixture.checkpointDir,
@@ -2203,14 +2203,14 @@ const fs = require("node:fs/promises");
       runId: "run-repair"
     });
 
-    const checkpointList = await registered.methods.get("steprollback.checkpoints.list")({
+    const checkpointList = await registered.methods.get("clawreverse.checkpoints.list")({
       params: {
         agentId: "main",
         sessionId: "session-repair"
       }
     });
 
-    await cliHarness.commands.get("steprollback continue").action({
+    await cliHarness.commands.get("reverse continue").action({
       agent: "main",
       session: "session-repair",
       checkpoint: checkpointList.checkpoints[0].checkpointId,
@@ -2297,7 +2297,7 @@ test("maps agents.defaults to main and accepts default aliases in CLI and Gatewa
       },
       plugins: {
         entries: {
-          "step-rollback": {
+          "clawreverse": {
             config: {
               workspaceRoots: [fixture.workspace],
               checkpointDir: fixture.checkpointDir,
@@ -2338,7 +2338,7 @@ test("maps agents.defaults to main and accepts default aliases in CLI and Gatewa
   registered.clis[0].factory({ program: cliHarness.program });
 
   const agentsOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback agents").action({});
+    await cliHarness.commands.get("reverse agents").action({});
   });
   assert.match(agentsOutput, /\bmain\b/);
   assert.match(agentsOutput, /\bmain-cp-0001\b/);
@@ -2346,11 +2346,11 @@ test("maps agents.defaults to main and accepts default aliases in CLI and Gatewa
   assert.doesNotMatch(agentsOutput, /\bdefaults\b/);
 
   const sessionsOutput = await captureConsoleLog(async () => {
-    await cliHarness.commands.get("steprollback sessions").action({ agent: "default" });
+    await cliHarness.commands.get("reverse sessions").action({ agent: "default" });
   });
   assert.match(sessionsOutput, /session-defaults/);
 
-  const rollbackStatus = await registered.methods.get("steprollback.rollback.status")({
+  const rollbackStatus = await registered.methods.get("clawreverse.rollback.status")({
     params: {
       agentId: "defaults",
       sessionId: "session-defaults"

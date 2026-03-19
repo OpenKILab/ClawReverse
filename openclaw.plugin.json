@@ -1,8 +1,8 @@
 {
-  "id": "step-rollback",
-  "name": "Step Rollback",
+  "id": "clawreverse",
+  "name": "ClawReverse",
   "version": "0.1.0",
-  "description": "Gateway rollback and session checkout plugin for OpenClaw.",
+  "description": "Checkpoint, rollback, and branch continuation plugin for OpenClaw.",
   "runtime": {
     "entry": "./dist/index.js"
   },
@@ -24,19 +24,19 @@
       },
       "checkpointDir": {
         "type": "string",
-        "default": "~/.openclaw/plugins/step-rollback/checkpoints"
+        "default": "~/.openclaw/plugins/clawreverse/checkpoints"
       },
       "registryDir": {
         "type": "string",
-        "default": "~/.openclaw/plugins/step-rollback/registry"
+        "default": "~/.openclaw/plugins/clawreverse/registry"
       },
       "runtimeDir": {
         "type": "string",
-        "default": "~/.openclaw/plugins/step-rollback/runtime"
+        "default": "~/.openclaw/plugins/clawreverse/runtime"
       },
       "reportsDir": {
         "type": "string",
-        "default": "~/.openclaw/plugins/step-rollback/reports"
+        "default": "~/.openclaw/plugins/clawreverse/reports"
       },
       "maxCheckpointsPerSession": {
         "type": "number",

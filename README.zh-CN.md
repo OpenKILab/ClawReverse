@@ -1,6 +1,8 @@
 # ClawReverse
 
-为 OpenClaw 会话提供安全的 checkpoint、rollback 和干净的分支继续能力。
+通过 `openclaw reverse` 为 OpenClaw 会话提供安全的 checkpoint、rollback 和干净的分支继续能力。
+
+ClawReverse 是一个 OpenClaw 原生插件，提供 `openclaw reverse` 命令，用来保存 checkpoint、恢复干净的 workspace 状态，并基于已有进度继续推进，而不是每次从头开始。
 
 ## 使用场景
 
@@ -48,12 +50,14 @@ openclaw plugins install -l <path-to-repo>
 
 如果你想用复制安装而不是软链接安装，可以使用 `openclaw plugins install <path-to-repo>`。
 
+插件在 `openclaw.json` 里的配置键是 `clawreverse`，CLI 基础命令是 `openclaw reverse`。
+
 ### 最小配置
 
 最快的方式：
 
 ```bash
-openclaw steprollback setup
+openclaw reverse setup
 ```
 
 如果你更想手动编辑 `openclaw.json`，下面是最小可用配置：
@@ -61,10 +65,10 @@ openclaw steprollback setup
 ```json
 {
   "plugins": {
-    "allow": ["step-rollback"],
+    "allow": ["clawreverse"],
     "enabled": true,
     "entries": {
-      "step-rollback": {
+      "clawreverse": {
         "enabled": true,
         "config": {
           "workspaceRoots": ["~/.openclaw/workspace"]
@@ -75,17 +79,17 @@ openclaw steprollback setup
 }
 ```
 
-其余插件路径默认会落在 `~/.openclaw/plugins/step-rollback/` 下。
+其余插件路径默认会落在 `~/.openclaw/plugins/clawreverse/` 下。
 
 ### 验证安装
 
 安装或修改配置后，重启 Gateway，然后确认插件命令已经可见：
 
 ```bash
-openclaw steprollback --help
+openclaw reverse --help
 ```
 
-如果命令没有出现，先确认 `openclaw.json` 仍然能通过校验，并且 `step-rollback` 已经加入 `plugins.allow`。
+如果命令没有出现，先确认 `openclaw.json` 仍然能通过校验，并且 `clawreverse` 已经加入 `plugins.allow`。
 
 ### 一个最小 happy path
 
@@ -94,9 +98,9 @@ openclaw steprollback --help
 3. 从某个 checkpoint continue 出一个新的 child 分支。
 
 ```bash
-openclaw steprollback checkpoints --agent <agent-id> --session <session-id>
+openclaw reverse checkpoints --agent <agent-id> --session <session-id>
 
-openclaw steprollback continue \
+openclaw reverse continue \
   --agent <agent-id> \
   --session <session-id> \
   --checkpoint <checkpoint-id> \
@@ -107,10 +111,10 @@ openclaw steprollback continue \
 
 ### 查看 checkpoint tree
 
-如果你想看 parent session 和通过 `continue` 创建出来的 child branch 是怎么连接起来的，可以使用 `openclaw steprollback tree`：
+如果你想看 parent session 和通过 `continue` 创建出来的 child branch 是怎么连接起来的，可以使用 `openclaw reverse tree`：
 
 ```bash
-openclaw steprollback tree --agent <agent-id> --session <session-id>
+openclaw reverse tree --agent <agent-id> --session <session-id>
 ```
 
 它适合回答这些问题：
@@ -122,7 +126,7 @@ openclaw steprollback tree --agent <agent-id> --session <session-id>
 如果你想把某个 checkpoint 当作树根来聚焦查看，可以使用 `--node`，也可以用它的别名 `--checkpoint`：
 
 ```bash
-openclaw steprollback tree \
+openclaw reverse tree \
   --agent <agent-id> \
   --session <session-id> \
   --node <checkpoint-id>
@@ -137,3 +141,10 @@ openclaw steprollback tree \
 ```bash
 npm test
 ```
+
+## 联系方式
+
+如有问题，可通过以下邮箱联系：
+
+- [wangxuhong@pjlab.org.cn](mailto:wangxuhong@pjlab.org.cn)
+- [huangbin@pjlab.org.cn](mailto:huangbin@pjlab.org.cn)

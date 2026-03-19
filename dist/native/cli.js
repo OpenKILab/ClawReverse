@@ -586,7 +586,7 @@ const CLI_COMMANDS = [
   {
     name: "setup",
     usage: "setup [--base-dir <path>] [--dry-run] [--json]",
-    description: "Initialize Step Rollback config in openclaw.json.",
+    description: "Initialize ClawReverse config in openclaw.json.",
     options: [
       createCliOption("--base-dir <path>", "Base OpenClaw state directory. Defaults to OPENCLAW_STATE_DIR, OPENCLAW_HOME, or ~/.openclaw."),
       createCliOption("--dry-run", "Preview the config patch without writing files."),
@@ -842,7 +842,7 @@ function renderCliOverview() {
       { key: "description", label: "Description" }
     ]),
     "",
-    "Run 'openclaw steprollback <command> --help' for command-specific details."
+    "Run 'openclaw reverse <command> --help' for command-specific details."
   ].join("\n");
 }
 
@@ -1093,7 +1093,7 @@ export function createCliMethodInvoker(api, engine, logger, options = {}) {
     if (typeof localMethod !== "function") {
       throw new StepRollbackError(
         "GATEWAY_CALL_FAILED",
-        `Step Rollback could not resolve a handler for '${methodName}'.`,
+        `ClawReverse could not resolve a handler for '${methodName}'.`,
         { methodName, params: normalizedParams }
       );
     }
@@ -1115,7 +1115,7 @@ export function registerCli(api, engine, cliMethodInvoker) {
 
   api.registerCli(
     ({ program }) => {
-      const command = program.command("steprollback").description("Inspect the Step Rollback native plugin.");
+      const command = program.command("reverse").description("Inspect the ClawReverse native plugin.");
       attachCliOverviewHelp(command);
 
       for (const definition of CLI_COMMANDS) {
@@ -1136,6 +1136,6 @@ export function registerCli(api, engine, cliMethodInvoker) {
         });
       }
     },
-    { commands: ["steprollback"] }
+    { commands: ["reverse"] }
   );
 }

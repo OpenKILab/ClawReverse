@@ -39,7 +39,7 @@ export class CheckpointManager {
     const snapshotRoot = path.join(this.config.checkpointDir, checkpointId);
     const createdAt = nowIso();
     this.logger.info(
-      `[step-rollback] checkpoint create start checkpoint='${checkpointId}' session='${ctx.sessionId}' tool='${ctx.toolName}' toolCallId='${ctx.toolCallId ?? "-"}'`
+      `[clawreverse] checkpoint create start checkpoint='${checkpointId}' session='${ctx.sessionId}' tool='${ctx.toolName}' toolCallId='${ctx.toolCallId ?? "-"}'`
     );
 
     const runtimeState = await this.runtimeCursorManager.ensure(ctx.agentId, ctx.sessionId, {
@@ -105,7 +105,7 @@ export class CheckpointManager {
     }
 
     this.logger.info(
-      `[step-rollback] checkpoint create complete checkpoint='${checkpointId}' session='${ctx.sessionId}' snapshotRef='${snapshotRoot}'`
+      `[clawreverse] checkpoint create complete checkpoint='${checkpointId}' session='${ctx.sessionId}' snapshotRef='${snapshotRoot}'`
     );
 
     return record;
@@ -131,7 +131,7 @@ export class CheckpointManager {
 
     if (!candidate) {
       this.logger.warn(
-        `[step-rollback] reconcile skipped because no checkpoint matched toolCallId='${ctx.toolCallId}' session='${ctx.sessionId}'`
+        `[clawreverse] reconcile skipped because no checkpoint matched toolCallId='${ctx.toolCallId}' session='${ctx.sessionId}'`
       );
       return null;
     }
@@ -141,7 +141,7 @@ export class CheckpointManager {
     }
 
     this.logger.info(
-      `[step-rollback] reconciling checkpoint '${candidate.checkpointId}' to entry='${ctx.entryId}' node='${ctx.nodeIndex}' toolCallId='${ctx.toolCallId}'`
+      `[clawreverse] reconciling checkpoint '${candidate.checkpointId}' to entry='${ctx.entryId}' node='${ctx.nodeIndex}' toolCallId='${ctx.toolCallId}'`
     );
 
     const nextSummary = buildCheckpointSummary({
@@ -187,7 +187,7 @@ export class CheckpointManager {
       return current;
     });
 
-    this.logger.info(`[step-rollback] checkpoint restore start checkpoint='${checkpointId}'`);
+    this.logger.info(`[clawreverse] checkpoint restore start checkpoint='${checkpointId}'`);
 
     try {
       const manifest = await readJson(path.join(record.snapshotRef, "snapshot.json"), null);
@@ -219,7 +219,7 @@ export class CheckpointManager {
       });
     } catch (error) {
       this.logger.error(
-        `[step-rollback] checkpoint restore failed checkpoint='${checkpointId}': ${error instanceof Error ? error.message : error}`
+        `[clawreverse] checkpoint restore failed checkpoint='${checkpointId}': ${error instanceof Error ? error.message : error}`
       );
       await this.registry.update(checkpointId, (current) => {
         current.status = "failed";
@@ -347,7 +347,7 @@ export class CheckpointManager {
     } catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
         this.logger.warn?.(
-          `[step-rollback] transcript snapshot skipped because source transcript was missing: ${transcriptPath}`
+          `[clawreverse] transcript snapshot skipped because source transcript was missing: ${transcriptPath}`
         );
         return null;
       }
@@ -361,7 +361,7 @@ export class CheckpointManager {
 
     if (!exists) {
       this.logger.warn(
-        `[step-rollback] workspace root '${rootPath}' did not exist while creating checkpoint '${checkpointId}'`
+        `[clawreverse] workspace root '${rootPath}' did not exist while creating checkpoint '${checkpointId}'`
       );
       return {
         backend: "git",
@@ -379,7 +379,7 @@ export class CheckpointManager {
       const repoDir = this.gitRepoDir(rootPath);
       const commitId = await this.captureGitSnapshot(repoDir, rootPath, checkpointId, ctx.toolName);
       this.logger.info(
-        `[step-rollback] git snapshot committed checkpoint='${checkpointId}' root='${rootPath}' commit='${commitId}' repo='${repoDir}'`
+        `[clawreverse] git snapshot committed checkpoint='${checkpointId}' root='${rootPath}' commit='${commitId}' repo='${repoDir}'`
       );
 
       return {
@@ -396,7 +396,7 @@ export class CheckpointManager {
     const snapshotTarget = path.join(snapshotRoot, "workspace", snapshotName);
     const kind = await copyPath(rootPath, snapshotTarget);
     this.logger.info(
-      `[step-rollback] copied snapshot checkpoint='${checkpointId}' target='${rootPath}' kind='${kind}'`
+      `[clawreverse] copied snapshot checkpoint='${checkpointId}' target='${rootPath}' kind='${kind}'`
     );
 
     return {
@@ -417,7 +417,7 @@ export class CheckpointManager {
 
     const statusBeforeCommit = await this.describeGitWorkspace(repoDir, rootPath);
     this.logger.info(
-      `[step-rollback] git workspace status checkpoint='${checkpointId}' root='${rootPath}' dirtyCount='${statusBeforeCommit.dirtyCount}' sample='${statusBeforeCommit.sample.join(" | ") || "-"}'`
+      `[clawreverse] git workspace status checkpoint='${checkpointId}' root='${rootPath}' dirtyCount='${statusBeforeCommit.dirtyCount}' sample='${statusBeforeCommit.sample.join(" | ") || "-"}'`
     );
 
     await this.runGit(
@@ -444,9 +444,9 @@ export class CheckpointManager {
         "-c",
         "commit.gpgsign=false",
         "-c",
-        "user.name=OpenClaw Step Rollback",
+        "user.name=ClawReverse",
         "-c",
-        "user.email=step-rollback@openclaw.local",
+        "user.email=clawreverse@openclaw.local",
         "commit",
         "--allow-empty",
         "-m",
@@ -485,7 +485,7 @@ export class CheckpointManager {
     await removePath(entry.targetPath);
     await ensureDir(entry.targetPath);
 
-    const archivePath = path.join(os.tmpdir(), `step-rollback-${path.basename(entry.repoDir)}-${Date.now()}.tar`);
+    const archivePath = path.join(os.tmpdir(), `clawreverse-${path.basename(entry.repoDir)}-${Date.now()}.tar`);
 
     try {
       await this.runGit(
@@ -507,7 +507,7 @@ export class CheckpointManager {
     }
 
     await ensureDir(path.dirname(repoDir));
-    this.logger.info(`[step-rollback] initializing snapshot git repository '${repoDir}'`);
+    this.logger.info(`[clawreverse] initializing snapshot git repository '${repoDir}'`);
     await this.runGit(["init", "--bare", repoDir], {
       cwd: path.dirname(repoDir)
     });
@@ -536,10 +536,10 @@ export class CheckpointManager {
         cwd: options.cwd,
         env: {
           ...process.env,
-          GIT_AUTHOR_NAME: "OpenClaw Step Rollback",
-          GIT_AUTHOR_EMAIL: "step-rollback@openclaw.local",
-          GIT_COMMITTER_NAME: "OpenClaw Step Rollback",
-          GIT_COMMITTER_EMAIL: "step-rollback@openclaw.local"
+          GIT_AUTHOR_NAME: "ClawReverse",
+          GIT_AUTHOR_EMAIL: "clawreverse@openclaw.local",
+          GIT_COMMITTER_NAME: "ClawReverse",
+          GIT_COMMITTER_EMAIL: "clawreverse@openclaw.local"
         },
         maxBuffer: 16 * 1024 * 1024
       });

@@ -1121,7 +1121,7 @@ export async function annotateBranchSessionRecord(api, agentId, reference, metad
 }
 
 export function buildBranchSessionKey(agentId, branchId) {
-  return `agent:${sanitizeSessionToken(agentId, "main")}:direct:step-rollback-${sanitizeSessionToken(branchId, "branch")}`;
+  return `agent:${sanitizeSessionToken(agentId, "main")}:direct:clawreverse-${sanitizeSessionToken(branchId, "branch")}`;
 }
 
 export function buildAgentSessionKey(agentId) {

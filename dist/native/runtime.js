@@ -78,7 +78,7 @@ function sanitizeAgentToken(value, fallback = "agent") {
 }
 
 function resolvePluginStateRoot(config) {
-  return path.dirname(config?.checkpointDir ?? resolveAbsolutePath("~/.openclaw/plugins/step-rollback/checkpoints"));
+  return path.dirname(config?.checkpointDir ?? resolveAbsolutePath("~/.openclaw/plugins/clawreverse/checkpoints"));
 }
 
 function resolveForkWorkspacePath(config, agentId) {
@@ -274,7 +274,7 @@ function isPluginManagedForkEntry(entry) {
   const workspace = pickNonEmptyString(entry.workspace);
   const agentId = pickNonEmptyString(entry.id);
 
-  return workspace.includes("/plugins/step-rollback/workspaces/") || /-cp-\d+$/i.test(agentId);
+  return workspace.includes("/plugins/clawreverse/workspaces/") || /-cp-\d+$/i.test(agentId);
 }
 
 function sanitizeListAgentEntry(entry) {
@@ -752,7 +752,7 @@ export function createNativeHostBridge(api, logger, options = {}) {
       if (!engine?.services?.checkpointManager) {
         throw new StepRollbackError(
           "CONTINUE_START_FAILED",
-          "Step Rollback could not access its runtime services while forking a child agent.",
+          "ClawReverse could not access its runtime services while forking a child agent.",
           { sourceAgentId, sourceSessionId, checkpointId: checkpoint?.checkpointId }
         );
       }
@@ -1071,7 +1071,7 @@ export function registerLifecycleHooks(api, engine, logger) {
 
     api.registerHook(binding.hookName, handler, {
       name: `${manifest.id}.${binding.hookName}`,
-      description: `Step Rollback handler for ${binding.hookName}`
+      description: `ClawReverse handler for ${binding.hookName}`
     });
   }
 }
