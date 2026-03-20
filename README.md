@@ -1,11 +1,9 @@
 <p align="center">
-  <img src="./clawreverse_logo.jpg" alt="ClawReverse logo" width="220" />
+  <img src="./clawreverse_logo.jpg" alt="ClawReverse logo" width="320" />
 </p>
 
 <p align="center">
-  <a href="mailto:wangxuhong@pjlab.org.cn">wangxuhong@pjlab.org.cn</a>
-  <br />
-  <a href="mailto:huangbin@pjlab.org.cn">huangbin@pjlab.org.cn</a>
+  <a href="mailto:wangxuhong@pjlab.org.cn">wangxuhong@pjlab.org.cn</a> | <a href="mailto:huangbin@pjlab.org.cn">huangbin@pjlab.org.cn</a>
 </p>
 
 # ClawReverse
