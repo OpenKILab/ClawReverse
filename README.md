@@ -40,15 +40,21 @@ Think of the plugin like this:
 ## Requirements
 
 - Node.js 24+
-- A working OpenClaw installation with a valid `openclaw.json`
-- Access to the machine that runs OpenClaw
+- A working OpenClaw installation with a valid `openclaw.json` with the read and write perssion granted
 
 ## Install
 
-Linked install:
+If you're starting from GitHub, clone the repo first:
 
 ```bash
-openclaw plugins install -l <path-to-repo>
+git clone https://github.com/OpenKILab/ClawReverse.git
+cd ClawReverse
+```
+
+Then install it as a linked plugin:
+
+```bash
+openclaw plugins install -l "$(pwd)"
 ```
 
 
@@ -164,6 +170,33 @@ This helps answer questions such as:
 - where a child branch was created
 - how many nodes, sessions, and branches are involved
 
+For example, suppose the main session created two checkpoints, then you used `continue` from `ckpt_0002` to try a different fix:
+
+```text
+Root: ckpt_0001 [main / 5f29223a-6e53-49f9-9200-63766baa7c2f / node 7]
+Resolved by: default
+Nodes: 5  Sessions: 2  Branches: 1
+
+ckpt_0001 [main / 5f29223a-6e53-49f9-9200-63766baa7c2f / node 7] write - before tool write summary.txt
+\- ckpt_0002 [main / 5f29223a-6e53-49f9-9200-63766baa7c2f / node 8] write - before tool write spark.txt
+   |- ckpt_0003 [main / 5f29223a-6e53-49f9-9200-63766baa7c2f / node 9] exec - before tool exec delete summary.txt
+   \- ckpt_0004 [main-branch / 91c5d557-f94c-4d27-8d7d-0e0d9b4f7d6b / node 1] write - before tool write alternative_summary.txt via continue
+      \- ckpt_0005 [main-branch / 91c5d557-f94c-4d27-8d7d-0e0d9b4f7d6b / node 2] exec - before tool exec move alternative_summary.txt archive/alternative_summary.txt
+```
+
+You can read this tree like this:
+
+- `ckpt_0001` is the root selected for the current view
+- `ckpt_0002 -> ckpt_0003` is the original main line
+- `ckpt_0004` starts a child branch from `ckpt_0002`, and `via continue` shows why that edge exists
+- the child branch has its own session id, so you can quickly tell the parent and child lines apart
+
+If you only want to inspect one subtree, pass the branch point explicitly:
+
+```bash
+openclaw reverse tree --node ckpt_0002
+```
+
 
 ## Troubleshooting
 
@@ -186,4 +219,5 @@ npm test
 
 - [x] PoC of checkpoint snapshots
 - [x] Continue tasks with a newly created agent
+- [ ] Package it as an OpenClaw skill
 - [ ] Integrate sandbox support
