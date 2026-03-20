@@ -235,5 +235,5 @@ npm test
 
 如果有任何问题，请通过下面的邮箱联系:
 
-- Xuhong Wang ，Shanghai AI Laboratory，<a href="mailto:wangxuhong@pjlab.org.cn">wangxuhong@pjlab.org.cn</a>
 - Bin Huang，Shanghai AI Laboratory，<a href="mailto:huangbin@pjlab.org.cn">huangbin@pjlab.org.cn</a>
+- Xuhong Wang ，Shanghai AI Laboratory，<a href="mailto:wangxuhong@pjlab.org.cn">wangxuhong@pjlab.org.cn</a>

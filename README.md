@@ -235,5 +235,5 @@ npm test
 
 If you have questions or would like to collaborate, please contact us at:
 
-- Xuhong Wang ，Shanghai AI Laboratory，<a href="mailto:wangxuhong@pjlab.org.cn">wangxuhong@pjlab.org.cn</a>
 - Bin Huang，Shanghai AI Laboratory，<a href="mailto:huangbin@pjlab.org.cn">huangbin@pjlab.org.cn</a>
+- Xuhong Wang ，Shanghai AI Laboratory，<a href="mailto:wangxuhong@pjlab.org.cn">wangxuhong@pjlab.org.cn</a>
