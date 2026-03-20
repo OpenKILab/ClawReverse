@@ -1,3 +1,13 @@
+<p align="center">
+  <img src="./clawreverse_logo.jpg" alt="ClawReverse logo" width="220" />
+</p>
+
+<p align="center">
+  <a href="mailto:wangxuhong@pjlab.org.cn">wangxuhong@pjlab.org.cn</a>
+  <br />
+  <a href="mailto:huangbin@pjlab.org.cn">huangbin@pjlab.org.cn</a>
+</p>
+
 # ClawReverse
 
 [English](README.md) | 简体中文
@@ -159,10 +169,3 @@ npm test
 - ✅ checkpoint snapshot 的 PoC
 - ✅ 基于新创建的 agent 继续任务
 - [ ] 集成 sandbox 支持
-
-## 联系方式
-
-如有问题，请联系：
-
-- [wangxuhong@pjlab.org.cn](mailto:wangxuhong@pjlab.org.cn)
-- [huangbin@pjlab.org.cn](mailto:huangbin@pjlab.org.cn)
