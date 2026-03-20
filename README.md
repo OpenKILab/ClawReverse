@@ -1,3 +1,13 @@
+<p align="center">
+  <img src="./clawreverse_logo.jpg" alt="ClawReverse logo" width="220" />
+</p>
+
+<p align="center">
+  <a href="mailto:wangxuhong@pjlab.org.cn">wangxuhong@pjlab.org.cn</a>
+  <br />
+  <a href="mailto:huangbin@pjlab.org.cn">huangbin@pjlab.org.cn</a>
+</p>
+
 # ClawReverse
 
 English | [简体中文](README.zh-CN.md)
@@ -89,6 +99,28 @@ If the command is missing, make sure:
 - `clawreverse` is in `plugins.allow`
 - the plugin entry is enabled
 
+## Find `agent id` and `session id`
+
+Before running `checkpoints`, `continue`, or `rollback`, first look up the agent and session you want to operate on.
+
+### 1) List available agents
+
+```bash
+openclaw reverse agents
+```
+
+Use the value in the `Agent` column as your `agent id`.
+
+### 2) List sessions for one agent
+
+```bash
+openclaw reverse sessions --agent <agent-id>
+```
+
+Use the value in the `Session` column as your `session id`. The row marked `latest` is the most recent session for that agent.
+
+Add `--json` to either command if you want machine-readable output.
+
 ## Common workflows
 
 ### 1) List available checkpoints
@@ -154,13 +186,6 @@ npm test
 
 ## Roadmap
 
-- ✅ PoC of checkpoint snapshots
-- ✅ Continue tasks with a newly created agent
+- [x] PoC of checkpoint snapshots
+- [x] Continue tasks with a newly created agent
 - [ ] Integrate sandbox support
-
-## Contact
-
-For questions or collaboration:
-
-- [wangxuhong@pjlab.org.cn](mailto:wangxuhong@pjlab.org.cn)
-- [huangbin@pjlab.org.cn](mailto:huangbin@pjlab.org.cn)
