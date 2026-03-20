@@ -218,5 +218,5 @@ npm test
 
 - [x] checkpoint snapshot 的 PoC
 - [x] 基于新创建的 agent 继续任务
-- [ ] 封装成openclaw skill 
+- [x] 封装成openclaw skill 
 - [ ] 集成 sandbox 支持

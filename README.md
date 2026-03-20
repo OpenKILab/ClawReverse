@@ -219,5 +219,5 @@ npm test
 
 - [x] PoC of checkpoint snapshots
 - [x] Continue tasks with a newly created agent
-- [ ] Package it as an OpenClaw skill
+- [x] Package it as an OpenClaw skill
 - [ ] Integrate sandbox support
