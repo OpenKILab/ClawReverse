@@ -99,6 +99,28 @@ openclaw reverse --help
 - `clawreverse` 是否已加入 `plugins.allow`
 - 插件条目是否处于启用状态
 
+## 如何查看 `agent id` 和 `session id`
+
+在执行 `checkpoints`、`continue` 或 `rollback` 之前，先确认你要操作的是哪个 agent 和 session。
+
+### 1) 查看可用 agent
+
+```bash
+openclaw reverse agents
+```
+
+输出表格中的 `Agent` 列就是 `agent id`。
+
+### 2) 查看某个 agent 的 session
+
+```bash
+openclaw reverse sessions --agent <agent-id>
+```
+
+输出表格中的 `Session` 列就是 `session id`。被标记为 `latest` 的那一行表示这个 agent 最近一次的 session。
+
+如果你想拿到机器可读的结果，可以给这两个命令都加上 `--json`。
+
 ## 常见工作流
 
 ### 1) 查看可用 checkpoint
@@ -166,6 +188,6 @@ npm test
 
 ## Roadmap
 
-- ✅ checkpoint snapshot 的 PoC
-- ✅ 基于新创建的 agent 继续任务
+- [x] checkpoint snapshot 的 PoC
+- [x] 基于新创建的 agent 继续任务
 - [ ] 集成 sandbox 支持
