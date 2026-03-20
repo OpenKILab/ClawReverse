@@ -1,0 +1,23 @@
+# ClawHub publish should keep the plugin runtime files,
+# but skip non-text assets, tests, and local/generated junk.
+
+# Binary / unsupported by ClawHub publish
+clawreverse_logo.jpg
+
+# Not needed in the published skill bundle
+tests/
+
+# Optional docs to exclude because SKILL.md is the primary ClawHub doc
+README.md
+README.zh-CN.md
+
+# Local / generated
+node_modules/
+.clawhub/
+.clawdhub/
+.git/
+.DS_Store
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
