@@ -40,6 +40,8 @@ Think of the plugin like this:
 
 ## Install
 
+Prefer the published skill page? See ClawReverse on [ClawHub](https://clawhub.ai/BinHuangPJLAB/clawreverse).
+
 If you're starting from GitHub, clone the repo first:
 
 ```bash
