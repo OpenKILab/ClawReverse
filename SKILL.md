@@ -10,7 +10,7 @@ metadata: {"openclaw":{"emoji":"⏪","homepage":"https://github.com/OpenKILab/Cl
 
 Use this skill for OpenClaw session recovery and branching.
 
-ClawReverse is a native OpenClaw plugin that adds the `openclaw reverse` command family for checkpoint listing, rollback, continue, checkout, and lineage inspection.
+ClawReverse is a native OpenClaw plugin that adds the `openclaw reverse` command family for checkpoint listing, rollback, continue, checkout, disable, and lineage inspection.
 
 ## Use this skill when
 
@@ -19,6 +19,7 @@ ClawReverse is a native OpenClaw plugin that adds the `openclaw reverse` command
 - a user wants to branch from an earlier checkpoint and keep the parent session untouched
 - a user wants to inspect checkpoint lineage, rollback status, rollback reports, or branch records
 - a user wants to save tokens after a long analysis run by continuing from a checkpoint instead of starting over
+- a user wants to disable the plugin without deleting previously created checkpoints or other plugin data
 
 ## Do not use this skill when
 
@@ -32,6 +33,7 @@ ClawReverse is a native OpenClaw plugin that adds the `openclaw reverse` command
 - `rollback` rewinds the current session to a checkpoint. By default it does **not** restore the live workspace files unless `--restore-workspace` is used.
 - `continue` requires a non-empty `--prompt` and creates a **new child agent, new workspace, and new session**, leaving the parent untouched.
 - `checkout` creates a **new session in the same agent** from a checkpoint-backed entry. `--continue` can immediately start a run in that new session.
+- `disable` only flips `plugins.entries.clawreverse.enabled` to `false` in `openclaw.json`. It does **not** clean checkpoints, reports, registry data, runtime state, or workspaces.
 - `tree` is the fastest way to explain lineage and branch points to a user.
 - Add `--json` whenever another tool needs machine-readable output.
 
@@ -73,6 +75,14 @@ If the OpenClaw state directory is not the default one, use:
 ```bash
 openclaw reverse setup --base-dir /path/to/openclaw-state
 ```
+
+If a user later wants to stop using ClawReverse but keep everything it already created, run:
+
+```bash
+openclaw reverse disable
+```
+
+Restart the OpenClaw Gateway after running `disable`.
 
 ## Default config created by `setup`
 
@@ -208,6 +218,7 @@ openclaw reverse tree --node <checkpoint-id>
 | Command | Purpose |
 |---|---|
 | `openclaw reverse setup` | Patch `openclaw.json` and create plugin directories |
+| `openclaw reverse disable` | Disable the plugin without deleting existing resources |
 | `openclaw reverse status` | Show plugin runtime status |
 | `openclaw reverse agents` | List configured agents |
 | `openclaw reverse sessions --agent ...` | List sessions for one agent |
@@ -240,6 +251,12 @@ openclaw reverse tree --node <checkpoint-id>
 - restart the Gateway
 - check that `clawreverse` is in `plugins.allow`
 - check that `plugins.entries.clawreverse.enabled` is `true`
+
+### A user wants to stop using the plugin
+
+- run `openclaw reverse disable`
+- restart the Gateway
+- explain that existing checkpoints, reports, registry data, runtime state, and workspaces are preserved
 
 ### `continue` fails
 

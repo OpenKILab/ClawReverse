@@ -88,6 +88,14 @@ openclaw reverse setup
 
 其他插件路径默认位于 `~/.openclaw/plugins/clawreverse/`。
 
+如果之后你不想继续使用这个插件，但又想保留之前生成的 checkpoint、report、registry、runtime 状态和 workspace，可以执行：
+
+```bash
+openclaw reverse disable
+```
+
+这个命令只会把 `openclaw.json` 中的插件条目标记为禁用，不会清理已有资源。执行后请重启 Gateway 使配置生效。
+
 ## 验证安装
 
 安装完成或修改配置后，请先重启 Gateway，再确认命令已可用：

@@ -87,6 +87,14 @@ Or edit `openclaw.json` manually:
 
 Other plugin paths default to `~/.openclaw/plugins/clawreverse/`.
 
+To disable the plugin later without deleting any checkpoints, reports, registry data, runtime state, or workspaces it created before, run:
+
+```bash
+openclaw reverse disable
+```
+
+This only flips the plugin entry to disabled in `openclaw.json`. Restart Gateway after running it for the change to take effect.
+
 ## Verify
 
 After installation or config changes, restart Gateway and verify that the command is available:

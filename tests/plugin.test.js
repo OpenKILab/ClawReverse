@@ -1146,6 +1146,103 @@ test("setup patches openclaw.json and creates plugin directories", async () => {
   });
 });
 
+test("disable patches openclaw.json without deleting existing plugin resources", async () => {
+  const fixture = await createFixture();
+  const registered = {
+    clis: []
+  };
+  const existingConfig = {
+    gateway: {
+      auth: {
+        mode: "token"
+      }
+    },
+    plugins: {
+      enabled: true,
+      allow: ["other-plugin", "clawreverse"],
+      entries: {
+        "clawreverse": {
+          enabled: true,
+          config: {
+            workspaceRoots: [fixture.workspace],
+            checkpointDir: fixture.checkpointDir,
+            registryDir: fixture.registryDir,
+            runtimeDir: fixture.runtimeDir,
+            reportsDir: fixture.reportsDir,
+            allowContinuePrompt: false
+          }
+        }
+      }
+    }
+  };
+
+  await fs.mkdir(fixture.checkpointDir, { recursive: true });
+  await fs.mkdir(fixture.registryDir, { recursive: true });
+  await fs.mkdir(fixture.runtimeDir, { recursive: true });
+  await fs.mkdir(fixture.reportsDir, { recursive: true });
+  await writeOpenClawConfig(fixture.configPath, existingConfig);
+
+  const api = {
+    config: existingConfig,
+    logger: {
+      info() {},
+      warn() {},
+      error() {},
+      debug() {}
+    },
+    registerGatewayMethod() {},
+    registerHook() {},
+    on() {},
+    registerService() {},
+    registerCli(factory, meta) {
+      registered.clis.push({ factory, meta });
+    }
+  };
+
+  await withTempEnv({
+    OPENCLAW_CONFIG_PATH: fixture.configPath,
+    OPENCLAW_STATE_DIR: fixture.root
+  }, async () => {
+    await createNativeStepRollbackPlugin().register(api);
+
+    const cliHarness = createFakeProgram();
+    registered.clis[0].factory({ program: cliHarness.program });
+
+    const output = await captureConsoleLog(async () => {
+      await cliHarness.commands.get("reverse disable").action({});
+    });
+
+    assert.match(output, /pluginEnabled/);
+    assert.match(output, /preservedResources/);
+
+    const patchedConfig = JSON.parse(await fs.readFile(fixture.configPath, "utf8"));
+    assert.equal(patchedConfig.gateway.auth.mode, "token");
+    assert.deepEqual(patchedConfig.plugins.allow, ["other-plugin", "clawreverse"]);
+    assert.equal(patchedConfig.plugins.enabled, true);
+    assert.equal(patchedConfig.plugins.entries["clawreverse"].enabled, false);
+    assert.deepEqual(
+      patchedConfig.plugins.entries["clawreverse"].config.workspaceRoots,
+      [fixture.workspace]
+    );
+    assert.equal(
+      patchedConfig.plugins.entries["clawreverse"].config.allowContinuePrompt,
+      false
+    );
+
+    await fs.access(fixture.checkpointDir);
+    await fs.access(fixture.registryDir);
+    await fs.access(fixture.runtimeDir);
+    await fs.access(fixture.reportsDir);
+
+    const beforeDryRun = await fs.readFile(fixture.configPath, "utf8");
+    await cliHarness.commands.get("reverse disable").action({
+      dryRun: true
+    });
+    const afterDryRun = await fs.readFile(fixture.configPath, "utf8");
+    assert.equal(afterDryRun, beforeDryRun);
+  });
+});
+
 test("offers flag-based CLI commands for agents, sessions, rollback, and continue", async () => {
   const fixture = await createFixture();
   const registered = {
@@ -1285,6 +1382,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
 
   assert.match(rootHelp, /Command overview:/);
   assert.match(rootHelp, /setup \[--base-dir <path>\] \[--dry-run\] \[--json\]/);
+  assert.match(rootHelp, /disable \[--dry-run\] \[--json\]/);
   assert.match(rootHelp, /status/);
   assert.match(rootHelp, /continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt <text> \[--new-agent <agentId>\] \[--clone-auth <mode>\] \[--log\] \[--json\]/);
   assert.match(rootHelp, /tree \[--agent <agentId>\] \[--session <sessionId>\] \[--node <checkpointId>\] \[--json\]/);

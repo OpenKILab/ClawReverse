@@ -7,7 +7,7 @@ import { METHOD_NAMES, manifest } from "../core/contracts.js";
 import { StepRollbackError, toStepRollbackError } from "../core/errors.js";
 import { ensureDir, readJson, resolveAbsolutePath, resolveConfig, writeJson } from "../core/utils.js";
 import { annotateBranchSessionRecord, buildBranchSessionLabel, extractAgentRunMetadata, findContinuationSessionRecord, getConfiguredAgents, listSessionsForAgent, normalizeAgentIdInput, normalizeExternalParams, readSessionIndexState, resolveSessionRecordEventually } from "./sessions.js";
-import { buildSetupPluginConfig, callGatewayMethod, parseJsonOutput, patchPluginSetupDocument, pickNonEmptyString, resolveOpenClawConfigPath, unwrapRpcResult } from "./shared.js";
+import { buildSetupPluginConfig, callGatewayMethod, parseJsonOutput, patchPluginDisableDocument, patchPluginSetupDocument, pickNonEmptyString, resolveOpenClawConfigPath, unwrapRpcResult } from "./shared.js";
 
 const execFileAsync = promisify(execFile);
 const ANSI_PATTERN = /\u001b\[[0-9;]*m/g;
@@ -298,6 +298,28 @@ async function runSetupCommand(options = {}) {
     pluginConfig: nextDocument.document.plugins.entries[manifest.id].config,
     allow: nextDocument.document.plugins.allow,
     enabled: nextDocument.document.plugins.enabled
+  };
+}
+
+async function runDisableCommand(options = {}) {
+  const configPath = resolveOpenClawConfigPath();
+  const currentDocument = await readJson(configPath, {});
+  const nextDocument = patchPluginDisableDocument(currentDocument, manifest.id);
+
+  if (!options.dryRun) {
+    await writeJson(configPath, nextDocument.document);
+  }
+
+  return {
+    ok: true,
+    pluginId: manifest.id,
+    configPath,
+    changed: nextDocument.changed,
+    dryRun: Boolean(options.dryRun),
+    restartRequired: nextDocument.changed && !options.dryRun,
+    pluginEnabled: false,
+    preservedResources: true,
+    note: "Existing checkpoints, reports, registry, runtime, and workspace data were left untouched."
   };
 }
 
@@ -595,6 +617,20 @@ const CLI_COMMANDS = [
     run: async (_context, options) =>
       runSetupCommand({
         baseDir: options.baseDir,
+        dryRun: Boolean(options.dryRun)
+      }),
+    print: objectPrinter()
+  },
+  {
+    name: "disable",
+    usage: "disable [--dry-run] [--json]",
+    description: "Disable ClawReverse without deleting existing resources.",
+    options: [
+      createCliOption("--dry-run", "Preview the config patch without writing files."),
+      JSON_OPTION
+    ],
+    run: async (_context, options) =>
+      runDisableCommand({
         dryRun: Boolean(options.dryRun)
       }),
     print: objectPrinter()
