@@ -2,10 +2,6 @@
   <img src="./clawreverse_logo.jpg" alt="ClawReverse logo" width="320" />
 </p>
 
-<p align="center">
-  <a href="mailto:wangxuhong@pjlab.org.cn">wangxuhong@pjlab.org.cn</a> | <a href="mailto:huangbin@pjlab.org.cn">huangbin@pjlab.org.cn</a>
-</p>
-
 # ClawReverse
 
 English | [简体中文](README.zh-CN.md)
@@ -221,3 +217,23 @@ npm test
 - [x] Continue tasks with a newly created agent
 - [x] Package it as an OpenClaw skill
 - [ ] Integrate sandbox support
+
+## Citation
+
+```bibtex
+@software{clawreverse2026,
+  author       = {Bin Huang, Xuhong Wang, Yingchun Wang, Chaochao Lu, Xia Hu},
+  title        = {ClawReverse},
+  year         = {2026},
+  version      = {0.1.0},
+  organization = {Shanghai AI Laboratory},
+  url          = {https://github.com/OpenKILab/ClawReverse}
+}
+```
+
+## Contact
+
+If you have questions or would like to collaborate, please contact us at:
+
+- Xuhong Wang ，Shanghai AI Laboratory，<a href="mailto:wangxuhong@pjlab.org.cn">wangxuhong@pjlab.org.cn</a>
+- Bin Huang，Shanghai AI Laboratory，<a href="mailto:huangbin@pjlab.org.cn">huangbin@pjlab.org.cn</a>
