@@ -13,6 +13,7 @@ import { executeCheckout } from "./usecases/checkout-flow.js";
 import { executeContinue } from "./usecases/continue-flow.js";
 import { executeRollback } from "./usecases/rollback-flow.js";
 import { buildSessionTree } from "./usecases/session-tree.js";
+import { deleteSessionTree } from "./usecases/tree-delete.js";
 import { assertSessionRequest, toRollbackStatus } from "./usecases/session-support.js";
 
 function createNoopLogger() {
@@ -50,6 +51,7 @@ export class StepRollbackPlugin {
       [METHOD_NAMES.reportsGet]: (input) => this.getReport(input),
       [METHOD_NAMES.sessionNodesList]: (input) => this.listSessionNodes(input),
       [METHOD_NAMES.sessionTree]: (input) => this.listSessionTree(input),
+      [METHOD_NAMES.sessionTreeDelete]: (input) => this.deleteSessionTree(input),
       [METHOD_NAMES.sessionCheckout]: (input) => this.checkoutSession(input),
       [METHOD_NAMES.sessionBranchGet]: (input) => this.getBranch(input)
     };
@@ -223,6 +225,21 @@ export class StepRollbackPlugin {
     return buildSessionTree({
       services: this.services,
       ...input
+    });
+  }
+
+  async deleteSessionTree({ nodeId, checkpointId }) {
+    const resolvedCheckpointId = typeof nodeId === "string" && nodeId.trim()
+      ? nodeId.trim()
+      : typeof checkpointId === "string" && checkpointId.trim()
+        ? checkpointId.trim()
+        : "";
+
+    return deleteSessionTree({
+      services: this.services,
+      host: this.host,
+      checkpointId: resolvedCheckpointId,
+      logger: this.logger
     });
   }
 

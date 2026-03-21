@@ -77,6 +77,7 @@ export const METHOD_NAMES = {
   reportsGet: "clawreverse.reports.get",
   sessionNodesList: "clawreverse.session.nodes.list",
   sessionTree: "clawreverse.session.tree",
+  sessionTreeDelete: "clawreverse.session.tree.delete",
   sessionCheckout: "clawreverse.session.checkout",
   sessionBranchGet: "clawreverse.session.branch.get"
 };

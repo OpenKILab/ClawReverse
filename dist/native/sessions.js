@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { manifest } from "../core/contracts.js";
-import { nowIso, readJson, resolveAbsolutePath } from "../core/utils.js";
+import { nowIso, readJson, removePath, resolveAbsolutePath } from "../core/utils.js";
 import { pickFirst, pickInteger, pickNonEmptyString, unwrapRpcResult } from "./shared.js";
 
 function sanitizeSessionToken(value, fallback = "branch") {
@@ -673,6 +673,18 @@ export async function writeSessionTranscriptEntries(api, agentId, sessionId, ent
   };
 }
 
+export async function removeSessionTranscript(api, agentId, sessionId) {
+  const normalizedAgentId = normalizeAgentIdInput(api, agentId);
+  const transcriptPath = resolveSessionTranscriptPath(api, normalizedAgentId, sessionId);
+  await removePath(transcriptPath);
+
+  return {
+    agentId: normalizedAgentId,
+    sessionId,
+    transcriptPath
+  };
+}
+
 function remapWorkspacePath(value, sourceWorkspacePath, targetWorkspacePath) {
   if (
     typeof value !== "string" ||
@@ -1037,6 +1049,66 @@ export async function upsertSessionRecord(api, agentId, record, options = {}) {
     agentId: normalizedAgentId,
     sessionIndexPath: state.sessionIndexPath,
     record: nextRecord,
+    contents: nextContents
+  };
+}
+
+export async function removeSessionRecord(api, agentId, reference = {}) {
+  const normalizedAgentId = normalizeAgentIdInput(api, agentId);
+  const sessionId = pickNonEmptyString(reference.sessionId);
+  const sessionKey = pickNonEmptyString(reference.sessionKey);
+
+  if (!sessionId && !sessionKey) {
+    return {
+      agentId: normalizedAgentId,
+      removed: false
+    };
+  }
+
+  const state = await readSessionIndexState(api, normalizedAgentId);
+  let removed = false;
+  let nextContents = state.contents;
+
+  const matches = (entry, fallbackKey) => {
+    const entrySessionId = pickNonEmptyString(entry?.sessionId, entry?.id);
+    const entrySessionKey = pickNonEmptyString(entry?.sessionKey, entry?.key, fallbackKey);
+
+    if (sessionKey && entrySessionKey === sessionKey) {
+      return true;
+    }
+
+    return sessionId ? entrySessionId === sessionId : false;
+  };
+
+  if (Array.isArray(nextContents)) {
+    const filtered = nextContents.filter((entry) => !matches(entry));
+    removed = filtered.length !== nextContents.length;
+    nextContents = filtered;
+  } else if (nextContents && typeof nextContents === "object") {
+    const filtered = {};
+
+    for (const [key, entry] of Object.entries(nextContents)) {
+      if (matches(entry, key)) {
+        removed = true;
+        continue;
+      }
+
+      filtered[key] = entry;
+    }
+
+    nextContents = filtered;
+  }
+
+  if (removed) {
+    await writeSessionIndexState(state.sessionIndexPath, nextContents);
+  }
+
+  return {
+    agentId: normalizedAgentId,
+    sessionId: sessionId || undefined,
+    sessionKey: sessionKey || undefined,
+    sessionIndexPath: state.sessionIndexPath,
+    removed,
     contents: nextContents
   };
 }

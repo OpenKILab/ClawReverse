@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { updateJsonFile } from "../core/persistence.js";
-import { nowIso, readJson, writeJson } from "../core/utils.js";
+import { nowIso, readJson, removePath, writeJson } from "../core/utils.js";
 
 function createInitialState(agentId, sessionId, seed = {}) {
   return {
@@ -151,5 +151,13 @@ export class RuntimeCursorManager {
 
   async clearCurrentRun(agentId, sessionId) {
     return this.setCurrentRun(agentId, sessionId, null);
+  }
+
+  async remove(agentId, sessionId) {
+    await removePath(this.filePath(agentId, sessionId));
+    return {
+      agentId,
+      sessionId
+    };
   }
 }

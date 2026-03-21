@@ -810,6 +810,22 @@ const CLI_COMMANDS = [
     }
   }),
   rpcCommand({
+    name: "delete",
+    usage: "delete --node <checkpointId> [--json]",
+    description: "Delete all descendant resources under a checkpoint tree root while keeping the root node.",
+    method: METHOD_NAMES.sessionTreeDelete,
+    behavior: CLI_BEHAVIORS.mutate,
+    options: [
+      createCliOption("--node <checkpointId>", "Root node id. This checkpoint is preserved while all descendants are deleted.", true),
+      createCliOption("--checkpoint <checkpointId>", "Alias for --node."),
+      JSON_OPTION
+    ],
+    params: (_context, options) => ({
+      nodeId: pickNonEmptyString(options.node, options.checkpoint)
+    }),
+    print: objectPrinter()
+  }),
+  rpcCommand({
     name: "checkout",
     usage: "checkout --agent <agentId> --source-session <sessionId> --entry <entryId> [--continue] [--prompt <text>] [--json]",
     description: "Create a new session from a checkpoint-backed entry.",

@@ -10,7 +10,7 @@ metadata: {"openclaw":{"emoji":"⏪","homepage":"https://github.com/OpenKILab/Cl
 
 Use this skill for OpenClaw session recovery and branching.
 
-ClawReverse is a native OpenClaw plugin that adds the `openclaw reverse` command family for checkpoint listing, rollback, continue, checkout, disable, and lineage inspection.
+ClawReverse is a native OpenClaw plugin that adds the `openclaw reverse` command family for checkpoint listing, rollback, continue, checkout, delete, disable, and lineage inspection.
 
 ## Use this skill when
 
@@ -19,6 +19,7 @@ ClawReverse is a native OpenClaw plugin that adds the `openclaw reverse` command
 - a user wants to branch from an earlier checkpoint and keep the parent session untouched
 - a user wants to inspect checkpoint lineage, rollback status, rollback reports, or branch records
 - a user wants to save tokens after a long analysis run by continuing from a checkpoint instead of starting over
+- a user wants to delete all descendant resources below a checkpoint tree root while preserving that root checkpoint
 - a user wants to disable the plugin without deleting previously created checkpoints or other plugin data
 
 ## Do not use this skill when
@@ -33,6 +34,7 @@ ClawReverse is a native OpenClaw plugin that adds the `openclaw reverse` command
 - `rollback` rewinds the current session to a checkpoint. By default it does **not** restore the live workspace files unless `--restore-workspace` is used.
 - `continue` requires a non-empty `--prompt` and creates a **new child agent, new workspace, and new session**, leaving the parent untouched.
 - `checkout` creates a **new session in the same agent** from a checkpoint-backed entry. `--continue` can immediately start a run in that new session.
+- `delete` removes descendant checkpoints, branch records, child session resources, and child agent resources under a checkpoint tree root, but it keeps the selected root checkpoint.
 - `disable` only flips `plugins.entries.clawreverse.enabled` to `false` in `openclaw.json`. It does **not** clean checkpoints, reports, registry data, runtime state, or workspaces.
 - `tree` is the fastest way to explain lineage and branch points to a user.
 - Add `--json` whenever another tool needs machine-readable output.
@@ -213,11 +215,20 @@ openclaw reverse tree
 openclaw reverse tree --node <checkpoint-id>
 ```
 
+### 5) Delete all descendants under one tree root
+
+```bash
+openclaw reverse delete --node <checkpoint-id>
+```
+
+Use this when the user wants to keep the selected checkpoint but remove everything below it in the checkpoint tree.
+
 ## Command quick reference
 
 | Command | Purpose |
 |---|---|
 | `openclaw reverse setup` | Patch `openclaw.json` and create plugin directories |
+| `openclaw reverse delete --node ...` | Delete all descendant resources under a checkpoint while preserving that checkpoint |
 | `openclaw reverse disable` | Disable the plugin without deleting existing resources |
 | `openclaw reverse status` | Show plugin runtime status |
 | `openclaw reverse agents` | List configured agents |
@@ -257,6 +268,12 @@ openclaw reverse tree --node <checkpoint-id>
 - run `openclaw reverse disable`
 - restart the Gateway
 - explain that existing checkpoints, reports, registry data, runtime state, and workspaces are preserved
+
+### A user wants to clean a branch subtree but keep the chosen checkpoint
+
+- run `openclaw reverse delete --node <checkpoint-id>`
+- explain that the selected checkpoint is preserved
+- explain that descendant checkpoints, branch records, child sessions, and child agents under that subtree are removed
 
 ### `continue` fails
 

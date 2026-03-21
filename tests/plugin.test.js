@@ -761,6 +761,169 @@ test("builds checkpoint trees from the default root checkpoint and explicit node
   assert.deepEqual(explicitTree.tree.children, []);
 });
 
+test("deletes descendant tree resources while preserving the selected root checkpoint", async () => {
+  const fixture = await createFixture();
+  const plugin = createStepRollbackPlugin({
+    config: {
+      workspaceRoots: [fixture.workspace],
+      checkpointDir: fixture.checkpointDir,
+      registryDir: fixture.registryDir,
+      runtimeDir: fixture.runtimeDir,
+      reportsDir: fixture.reportsDir
+    },
+    host: {
+      async forkContinue() {
+        return {
+          started: true,
+          runId: "run-delete-child",
+          newAgentId: "main-cp-delete",
+          newSessionId: "session-delete-child",
+          newSessionKey: "agent:main-cp-delete:main",
+          createdNewAgent: true
+        };
+      }
+    }
+  });
+
+  await plugin.hooks.sessionStart({
+    agentId: "main",
+    sessionId: "session-delete-root",
+    runId: "run-delete-root"
+  });
+
+  await fs.writeFile(path.join(fixture.workspace, "delete-tree.txt"), "base\n", "utf8");
+  const firstCheckpoint = await plugin.hooks.beforeToolCall({
+    agentId: "main",
+    sessionId: "session-delete-root",
+    entryId: "entry-delete-1",
+    nodeIndex: 1,
+    toolName: "write",
+    runId: "run-delete-root"
+  });
+
+  await fs.writeFile(path.join(fixture.workspace, "delete-tree.txt"), "next\n", "utf8");
+  const secondCheckpoint = await plugin.hooks.beforeToolCall({
+    agentId: "main",
+    sessionId: "session-delete-root",
+    entryId: "entry-delete-2",
+    nodeIndex: 2,
+    toolName: "write",
+    runId: "run-delete-root"
+  });
+
+  const continueResponse = await plugin.methods["clawreverse.continue"]({
+    agentId: "main",
+    sessionId: "session-delete-root",
+    checkpointId: firstCheckpoint.checkpointId,
+    prompt: "Create a branch that will be deleted."
+  });
+
+  await plugin.hooks.sessionStart({
+    agentId: continueResponse.newAgentId,
+    sessionId: continueResponse.newSessionId,
+    runId: "run-delete-child"
+  });
+
+  await fs.writeFile(path.join(fixture.workspace, "delete-tree.txt"), "child\n", "utf8");
+  const childCheckpoint = await plugin.hooks.beforeToolCall({
+    agentId: continueResponse.newAgentId,
+    sessionId: continueResponse.newSessionId,
+    entryId: "entry-delete-child-1",
+    nodeIndex: 1,
+    toolName: "write",
+    runId: "run-delete-child"
+  });
+
+  const orphanBranchId = "br_orphan_delete";
+  await plugin.services.registry.saveBranch({
+    branchId: orphanBranchId,
+    branchType: "session",
+    sourceAgentId: "main",
+    sourceSessionId: "session-delete-root",
+    sourceEntryId: firstCheckpoint.entryId,
+    sourceCheckpointId: firstCheckpoint.checkpointId,
+    newAgentId: "main",
+    newSessionId: "session-delete-orphan",
+    newSessionKey: "agent:main:direct:clawreverse-br-orphan-delete",
+    createdAt: new Date().toISOString(),
+    reason: "checkout"
+  });
+  await plugin.services.runtimeCursorManager.replace("main", "session-delete-orphan", {
+    activeHeadEntryId: firstCheckpoint.entryId,
+    currentRunId: null
+  });
+
+  await plugin.services.reportWriter.save({
+    rollbackId: "rb-delete-second",
+    agentId: "main",
+    sessionId: "session-delete-root",
+    checkpointId: secondCheckpoint.checkpointId,
+    targetEntryId: secondCheckpoint.entryId,
+    triggeredAt: new Date().toISOString(),
+    result: "success",
+    message: "report for second checkpoint",
+    restoredWorkspace: false
+  });
+  await plugin.services.reportWriter.save({
+    rollbackId: "rb-delete-child",
+    agentId: continueResponse.newAgentId,
+    sessionId: continueResponse.newSessionId,
+    checkpointId: childCheckpoint.checkpointId,
+    targetEntryId: childCheckpoint.entryId,
+    triggeredAt: new Date().toISOString(),
+    result: "success",
+    message: "report for child checkpoint",
+    restoredWorkspace: false
+  });
+
+  const deleted = await plugin.methods["clawreverse.session.tree.delete"]({
+    nodeId: firstCheckpoint.checkpointId
+  });
+
+  assert.equal(deleted.rootCheckpointId, firstCheckpoint.checkpointId);
+  assert.equal(deleted.preservedCheckpointId, firstCheckpoint.checkpointId);
+  assert.deepEqual(
+    deleted.deletedCheckpointIds.sort(),
+    [secondCheckpoint.checkpointId, childCheckpoint.checkpointId].sort()
+  );
+  assert.deepEqual(
+    deleted.deletedBranchIds.sort(),
+    [continueResponse.branchId, orphanBranchId].sort()
+  );
+  assert.deepEqual(
+    deleted.deletedReportIds.sort(),
+    ["rb-delete-second", "rb-delete-child"].sort()
+  );
+  assert.deepEqual(
+    deleted.deletedSessionIds.sort((left, right) => left.sessionId.localeCompare(right.sessionId)),
+    [
+      { agentId: continueResponse.newAgentId, sessionId: continueResponse.newSessionId },
+      { agentId: "main", sessionId: "session-delete-orphan" }
+    ].sort((left, right) => left.sessionId.localeCompare(right.sessionId))
+  );
+
+  assert.ok(await plugin.services.checkpointManager.get(firstCheckpoint.checkpointId));
+  assert.equal(await plugin.services.checkpointManager.get(secondCheckpoint.checkpointId), null);
+  assert.equal(await plugin.services.checkpointManager.get(childCheckpoint.checkpointId), null);
+  assert.equal(await plugin.services.registry.getBranch(continueResponse.branchId), null);
+  assert.equal(await plugin.services.registry.getBranch(orphanBranchId), null);
+  assert.equal(await plugin.services.reportWriter.get("rb-delete-second"), null);
+  assert.equal(await plugin.services.reportWriter.get("rb-delete-child"), null);
+  assert.equal(await plugin.services.runtimeCursorManager.get(continueResponse.newAgentId, continueResponse.newSessionId), null);
+  assert.equal(await plugin.services.runtimeCursorManager.get("main", "session-delete-orphan"), null);
+
+  await fs.access(firstCheckpoint.snapshotRef);
+  await assert.rejects(() => fs.access(secondCheckpoint.snapshotRef));
+  await assert.rejects(() => fs.access(childCheckpoint.snapshotRef));
+
+  const remainingTree = await plugin.methods["clawreverse.session.tree"]({
+    nodeId: firstCheckpoint.checkpointId
+  });
+  assert.equal(remainingTree.totalNodes, 1);
+  assert.equal(remainingTree.totalBranches, 0);
+  assert.deepEqual(remainingTree.tree.children, []);
+});
+
 test("registers a native OpenClaw plugin and drives rollback through registered hooks and Gateway methods", async () => {
   const fixture = await createFixture();
   const registered = {
@@ -1243,6 +1406,250 @@ test("disable patches openclaw.json without deleting existing plugin resources",
   });
 });
 
+test("delete CLI removes descendant native resources while keeping the root checkpoint", async () => {
+  const fixture = await createFixture();
+  const registered = {
+    methods: new Map(),
+    hooks: new Map(),
+    services: [],
+    clis: []
+  };
+  const sessionStoreTemplate = path.join(fixture.root, "agents", "{agentId}", "sessions", "sessions.json");
+  const childAgentId = "main-cp-delete";
+  const childSessionId = "session-child-agent-delete";
+  const checkoutSessionId = "session-checkout-delete";
+  const childWorkspace = path.join(fixture.root, "plugin-data", "workspaces", childAgentId);
+  const childAgentDir = path.join(fixture.root, "agents", childAgentId, "agent");
+  const existingConfig = {
+    agents: {
+      list: [
+        {
+          id: "main",
+          name: "main",
+          workspace: fixture.workspace,
+          model: "gpt-test"
+        },
+        {
+          id: childAgentId,
+          name: childAgentId,
+          workspace: childWorkspace,
+          agentDir: childAgentDir,
+          model: "gpt-test"
+        }
+      ]
+    },
+    session: {
+      storePath: sessionStoreTemplate
+    },
+    plugins: {
+      entries: {
+        "clawreverse": {
+          config: {
+            workspaceRoots: [fixture.workspace],
+            checkpointDir: fixture.checkpointDir,
+            registryDir: fixture.registryDir,
+            runtimeDir: fixture.runtimeDir,
+            reportsDir: fixture.reportsDir
+          }
+        }
+      }
+    }
+  };
+
+  await writeOpenClawConfig(fixture.configPath, existingConfig);
+  await writeSessionIndex(fixture.root, "main", [
+    {
+      sessionId: "session-delete-native-root",
+      title: "Root session",
+      updatedAt: "2026-03-20T12:00:00.000Z"
+    },
+    {
+      sessionId: checkoutSessionId,
+      title: "Checkout child",
+      updatedAt: "2026-03-20T12:01:00.000Z",
+      branchOf: "session-delete-native-root"
+    }
+  ]);
+  await writeSessionIndex(fixture.root, childAgentId, [
+    {
+      sessionId: childSessionId,
+      title: "Child agent session",
+      updatedAt: "2026-03-20T12:02:00.000Z",
+      branchOf: "session-delete-native-root"
+    }
+  ]);
+  await writeSessionTranscript(fixture.root, "main", "session-delete-native-root", []);
+  await writeSessionTranscript(fixture.root, "main", checkoutSessionId, [
+    {
+      type: "session",
+      id: checkoutSessionId,
+      timestamp: "2026-03-20T12:01:00.000Z"
+    }
+  ]);
+  await writeSessionTranscript(fixture.root, childAgentId, childSessionId, [
+    {
+      type: "session",
+      id: childSessionId,
+      timestamp: "2026-03-20T12:02:00.000Z"
+    }
+  ]);
+  await fs.mkdir(childWorkspace, { recursive: true });
+  await fs.mkdir(childAgentDir, { recursive: true });
+  await fs.writeFile(path.join(childWorkspace, "child.txt"), "child\n", "utf8");
+  await fs.writeFile(path.join(childAgentDir, "agent.txt"), "agent\n", "utf8");
+
+  const api = {
+    config: existingConfig,
+    logger: {
+      info() {},
+      warn() {},
+      error() {},
+      debug() {}
+    },
+    registerGatewayMethod(name, handler) {
+      registered.methods.set(name, handler);
+    },
+    registerHook(name, handler, options) {
+      registered.hooks.set(name, { handler, options });
+    },
+    on(name, handler, options) {
+      registered.hooks.set(name, { handler, options });
+    },
+    registerService(service) {
+      registered.services.push(service);
+    },
+    registerCli(factory, meta) {
+      registered.clis.push({ factory, meta });
+    }
+  };
+
+  await withTempEnv({
+    OPENCLAW_CONFIG_PATH: fixture.configPath,
+    OPENCLAW_STATE_DIR: fixture.root
+  }, async () => {
+    const engine = await createNativeStepRollbackPlugin({
+      host: {
+        async forkContinue() {
+          return {
+            started: true,
+            runId: "run-native-delete-child",
+            newAgentId: childAgentId,
+            newWorkspacePath: childWorkspace,
+            newAgentDir: childAgentDir,
+            newSessionId: childSessionId,
+            newSessionKey: "agent:main-cp-delete:main",
+            createdNewAgent: true
+          };
+        }
+      }
+    }).register(api);
+
+    const cliHarness = createFakeProgram();
+    registered.clis[0].factory({ program: cliHarness.program });
+
+    await engine.hooks.sessionStart({
+      agentId: "main",
+      sessionId: "session-delete-native-root",
+      runId: "run-native-delete-root"
+    });
+
+    await fs.writeFile(path.join(fixture.workspace, "native-delete.txt"), "base\n", "utf8");
+    const firstCheckpoint = await engine.hooks.beforeToolCall({
+      agentId: "main",
+      sessionId: "session-delete-native-root",
+      entryId: "entry-native-delete-1",
+      nodeIndex: 1,
+      toolName: "write",
+      runId: "run-native-delete-root"
+    });
+
+    await fs.writeFile(path.join(fixture.workspace, "native-delete.txt"), "next\n", "utf8");
+    const secondCheckpoint = await engine.hooks.beforeToolCall({
+      agentId: "main",
+      sessionId: "session-delete-native-root",
+      entryId: "entry-native-delete-2",
+      nodeIndex: 2,
+      toolName: "write",
+      runId: "run-native-delete-root"
+    });
+
+    const continueResponse = await engine.methods["clawreverse.continue"]({
+      agentId: "main",
+      sessionId: "session-delete-native-root",
+      checkpointId: firstCheckpoint.checkpointId,
+      prompt: "Create child agent resources."
+    });
+
+    await engine.hooks.sessionStart({
+      agentId: childAgentId,
+      sessionId: childSessionId,
+      runId: "run-native-delete-child"
+    });
+
+    const childCheckpoint = await engine.hooks.beforeToolCall({
+      agentId: childAgentId,
+      sessionId: childSessionId,
+      entryId: "entry-native-delete-child-1",
+      nodeIndex: 1,
+      toolName: "write",
+      runId: "run-native-delete-child"
+    });
+
+    const orphanBranchId = "br_native_delete_checkout";
+    await engine.services.registry.saveBranch({
+      branchId: orphanBranchId,
+      branchType: "session",
+      sourceAgentId: "main",
+      sourceSessionId: "session-delete-native-root",
+      sourceEntryId: firstCheckpoint.entryId,
+      sourceCheckpointId: firstCheckpoint.checkpointId,
+      newAgentId: "main",
+      newSessionId: checkoutSessionId,
+      newSessionKey: "agent:main:direct:clawreverse-br-native-delete-checkout",
+      createdAt: new Date().toISOString(),
+      reason: "checkout"
+    });
+    await engine.services.runtimeCursorManager.replace("main", checkoutSessionId, {
+      activeHeadEntryId: firstCheckpoint.entryId,
+      currentRunId: null
+    });
+
+    const output = await captureConsoleLog(async () => {
+      await cliHarness.commands.get("reverse delete").action({
+        node: firstCheckpoint.checkpointId
+      });
+    });
+
+    assert.match(output, /preservedCheckpointId/);
+    assert.match(output, /deletedCheckpointIds/);
+
+    const nextConfig = JSON.parse(await fs.readFile(fixture.configPath, "utf8"));
+    assert.equal(nextConfig.agents.list.some((entry) => entry.id === "main"), true);
+    assert.equal(nextConfig.agents.list.some((entry) => entry.id === childAgentId), false);
+
+    const mainSessions = JSON.parse(await fs.readFile(sessionStoreTemplate.replace("{agentId}", "main"), "utf8"));
+    assert.equal(mainSessions.some((entry) => entry.sessionId === "session-delete-native-root"), true);
+    assert.equal(mainSessions.some((entry) => entry.sessionId === checkoutSessionId), false);
+
+    assert.ok(await engine.services.checkpointManager.get(firstCheckpoint.checkpointId));
+    assert.equal(await engine.services.checkpointManager.get(secondCheckpoint.checkpointId), null);
+    assert.equal(await engine.services.checkpointManager.get(childCheckpoint.checkpointId), null);
+    assert.equal(await engine.services.registry.getBranch(continueResponse.branchId), null);
+    assert.equal(await engine.services.registry.getBranch(orphanBranchId), null);
+    assert.equal(await engine.services.runtimeCursorManager.get(childAgentId, childSessionId), null);
+    assert.equal(await engine.services.runtimeCursorManager.get("main", checkoutSessionId), null);
+
+    await fs.access(firstCheckpoint.snapshotRef);
+    await assert.rejects(() => fs.access(secondCheckpoint.snapshotRef));
+    await assert.rejects(() => fs.access(childCheckpoint.snapshotRef));
+    await assert.rejects(() => fs.access(childWorkspace));
+    await assert.rejects(() => fs.access(path.join(fixture.root, "agents", childAgentId)));
+    await assert.rejects(() => fs.access(path.join(fixture.root, "agents", "main", "sessions", `${checkoutSessionId}.jsonl`)));
+    await assert.rejects(() => fs.access(path.join(fixture.root, "agents", childAgentId, "sessions", `${childSessionId}.jsonl`)));
+    await fs.access(path.join(fixture.root, "agents", "main", "sessions", "session-delete-native-root.jsonl"));
+  });
+});
+
 test("offers flag-based CLI commands for agents, sessions, rollback, and continue", async () => {
   const fixture = await createFixture();
   const registered = {
@@ -1386,6 +1793,7 @@ test("offers flag-based CLI commands for agents, sessions, rollback, and continu
   assert.match(rootHelp, /status/);
   assert.match(rootHelp, /continue --agent <agentId> --session <sessionId> --checkpoint <checkpointId> --prompt <text> \[--new-agent <agentId>\] \[--clone-auth <mode>\] \[--log\] \[--json\]/);
   assert.match(rootHelp, /tree \[--agent <agentId>\] \[--session <sessionId>\] \[--node <checkpointId>\] \[--json\]/);
+  assert.match(rootHelp, /delete --node <checkpointId> \[--json\]/);
   assert.match(rootHelp, /checkout --agent <agentId> --source-session <sessionId> --entry <entryId> \[--continue\] \[--prompt <text>\] \[--json\]/);
   assert.match(rootHelp, /report --rollback <rollbackId> \[--json\]/);
   assert.match(rootHelp, /branch --branch <branchId> \[--json\]/);

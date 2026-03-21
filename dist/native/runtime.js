@@ -13,6 +13,8 @@ import {
   forkSessionTranscriptEntries,
   normalizeAgentIdInput,
   normalizeExternalParams,
+  removeSessionRecord,
+  removeSessionTranscript,
   readSessionTranscriptEntries,
   resolveSessionRecord,
   resolveSessionRecordEventually,
@@ -493,6 +495,54 @@ function patchConfigWithForkedAgent(configDocument, agentId, agentEntry) {
   return nextConfig;
 }
 
+function patchConfigWithoutAgent(configDocument, agentId) {
+  const nextConfig = structuredClone(configDocument ?? {});
+  const nextAgents = nextConfig.agents;
+
+  if (!nextAgents || typeof nextAgents !== "object" || Array.isArray(nextAgents)) {
+    return nextConfig;
+  }
+
+  if (Array.isArray(nextAgents.list)) {
+    const repaired = repairConfiguredAgentEntries(nextAgents.list, nextAgents.defaults);
+    nextAgents.list = repaired.entries.filter((entry) => entry?.id !== agentId);
+
+    if (repaired.defaults !== undefined) {
+      nextAgents.defaults = repaired.defaults;
+    }
+
+    return nextConfig;
+  }
+
+  if (Array.isArray(nextAgents.entries)) {
+    const repaired = repairConfiguredAgentEntries(nextAgents.entries, nextAgents.defaults);
+    nextAgents.entries = repaired.entries.filter((entry) => entry?.id !== agentId);
+
+    if (repaired.defaults !== undefined) {
+      nextAgents.defaults = repaired.defaults;
+    }
+
+    return nextConfig;
+  }
+
+  for (const [key, entry] of Object.entries(nextAgents)) {
+    if (["defaults", "list", "entries"].includes(key)) {
+      continue;
+    }
+
+    if (key === agentId) {
+      delete nextAgents[key];
+      continue;
+    }
+
+    if (entry && typeof entry === "object" && entry.id === agentId) {
+      delete nextAgents[key];
+    }
+  }
+
+  return nextConfig;
+}
+
 function syncApiConfig(api, nextConfig) {
   if (!api) {
     return;
@@ -744,6 +794,97 @@ export function createNativeHostBridge(api, logger, options = {}) {
         sessionKey,
         label: buildBranchSessionLabel(sourceSessionId, branchId ?? "branch"),
         assumed: true
+      };
+    },
+
+    async cleanupDeletedTree({ deletedBranches = [], deletedSessions = [] } = {}) {
+      const configPath = resolveOpenClawConfigPath();
+      const currentConfig = await readJson(configPath, api?.config ?? {});
+      let nextConfig = currentConfig;
+      const deletedAgentIds = new Set();
+      const deletedSessionRecords = [];
+      const deletedSessionTranscripts = [];
+      const deletedWorkspaces = [];
+      const deletedAgentDirs = [];
+      const deletedLogFiles = [];
+
+      for (const session of deletedSessions) {
+        const agentId = pickNonEmptyString(session?.agentId);
+        const sessionId = pickNonEmptyString(session?.sessionId);
+        const sessionKey = pickNonEmptyString(session?.sessionKey);
+
+        if (!agentId || !sessionId) {
+          continue;
+        }
+
+        const removedRecord = await removeSessionRecord(api, agentId, {
+          sessionId,
+          sessionKey
+        });
+
+        if (removedRecord.removed) {
+          deletedSessionRecords.push({
+            agentId,
+            sessionId,
+            sessionKey: sessionKey || undefined
+          });
+        }
+
+        const removedTranscript = await removeSessionTranscript(api, agentId, sessionId);
+        deletedSessionTranscripts.push({
+          agentId,
+          sessionId,
+          transcriptPath: removedTranscript.transcriptPath
+        });
+      }
+
+      for (const branch of deletedBranches) {
+        const branchType = pickNonEmptyString(branch?.branchType);
+        const newAgentId = pickNonEmptyString(branch?.newAgentId);
+        const logFilePath = pickNonEmptyString(branch?.logFilePath);
+        const newWorkspacePath = pickNonEmptyString(branch?.newWorkspacePath);
+        const removeAgent = branchType === "agent" && branch?.createdNewAgent !== false && newAgentId;
+
+        if (logFilePath) {
+          await removePath(logFilePath);
+          deletedLogFiles.push(logFilePath);
+        }
+
+        if (!removeAgent) {
+          continue;
+        }
+
+        deletedAgentIds.add(newAgentId);
+
+        if (newWorkspacePath) {
+          await removePath(newWorkspacePath);
+          deletedWorkspaces.push(newWorkspacePath);
+        }
+      }
+
+      for (const agentId of deletedAgentIds) {
+        nextConfig = patchConfigWithoutAgent(nextConfig, agentId);
+        const agentRootDir = resolveAgentRootDirectory(agentId);
+        await removePath(agentRootDir);
+        deletedAgentDirs.push(agentRootDir);
+      }
+
+      const configChanged = JSON.stringify(nextConfig) !== JSON.stringify(currentConfig);
+
+      if (configChanged) {
+        await writeJson(configPath, nextConfig);
+        syncApiConfig(api, nextConfig);
+      }
+
+      return {
+        configPath,
+        configChanged,
+        deletedAgentIds: [...deletedAgentIds],
+        deletedSessionRecords,
+        deletedSessionTranscripts,
+        deletedWorkspaces,
+        deletedAgentDirs,
+        deletedLogFiles
       };
     },
 

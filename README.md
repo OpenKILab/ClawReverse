@@ -31,6 +31,7 @@ Think of the plugin like this:
 - `checkpoint`: a saved historical boundary for a session. It records the workspace snapshot, the closed transcript prefix, and lineage metadata.
 - `rollback`: rewinds the current line to an earlier checkpoint. It does not create a new workspace, agent, or session. By default, the parent workspace is left untouched unless you explicitly request an in-place restore.
 - `continue`: forks from a checkpoint. It requires `--prompt` and creates a new child agent, a new workspace, and a new session, leaving the parent untouched.
+- `delete`: removes all descendant resources under a checkpoint tree root while preserving the selected root checkpoint itself.
 
 
 ## Requirements
@@ -202,6 +203,14 @@ If you only want to inspect one subtree, pass the branch point explicitly:
 ```bash
 openclaw reverse tree --node ckpt_0002
 ```
+
+### 5) Delete all descendants under one checkpoint root
+
+```bash
+openclaw reverse delete --node <checkpoint-id>
+```
+
+This removes descendant checkpoints, branch records, child session resources, and child agent resources under that tree root, but it does not delete the root checkpoint you passed in.
 
 
 ## Troubleshooting
