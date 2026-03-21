@@ -39,4 +39,13 @@ export class SessionLockManager {
       }
     }
   }
+
+  async remove(agentId, sessionId) {
+    await removePath(this.lockFile(agentId, sessionId));
+    this.queues.delete(`${agentId}:${sessionId}`);
+    return {
+      agentId,
+      sessionId
+    };
+  }
 }

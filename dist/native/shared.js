@@ -280,6 +280,37 @@ export function patchPluginSetupDocument(configDocument, pluginId, pluginConfig)
   };
 }
 
+export function patchPluginDisableDocument(configDocument, pluginId) {
+  const nextConfig = structuredClone(
+    configDocument && typeof configDocument === "object" && !Array.isArray(configDocument)
+      ? configDocument
+      : {}
+  );
+  const existingPlugins = nextConfig.plugins && typeof nextConfig.plugins === "object" && !Array.isArray(nextConfig.plugins)
+    ? nextConfig.plugins
+    : {};
+  const existingEntries = existingPlugins.entries && typeof existingPlugins.entries === "object" && !Array.isArray(existingPlugins.entries)
+    ? existingPlugins.entries
+    : {};
+  const previousSnapshot = JSON.stringify(nextConfig);
+
+  nextConfig.plugins = {
+    ...existingPlugins,
+    entries: {
+      ...existingEntries,
+      [pluginId]: {
+        ...(existingEntries[pluginId] && typeof existingEntries[pluginId] === "object" ? existingEntries[pluginId] : {}),
+        enabled: false
+      }
+    }
+  };
+
+  return {
+    document: nextConfig,
+    changed: JSON.stringify(nextConfig) !== previousSnapshot
+  };
+}
+
 export function extractGatewayParams(request) {
   if (!request || typeof request !== "object") {
     return {};

@@ -1,6 +1,7 @@
 import path from "node:path";
 
-import { readJson, writeJson } from "../core/utils.js";
+import { readJsonRecords } from "../core/persistence.js";
+import { readJson, removePath, writeJson } from "../core/utils.js";
 
 export class ReportWriter {
   constructor({ config }) {
@@ -18,5 +19,21 @@ export class ReportWriter {
 
   async get(rollbackId) {
     return readJson(this.reportFile(rollbackId), null);
+  }
+
+  async list() {
+    return (await readJsonRecords(this.config.reportsDir))
+      .filter((report) => report?.rollbackId);
+  }
+
+  async remove(rollbackId) {
+    const current = await this.get(rollbackId);
+
+    if (!current) {
+      return null;
+    }
+
+    await removePath(this.reportFile(rollbackId));
+    return current;
   }
 }

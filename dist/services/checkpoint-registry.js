@@ -206,4 +206,23 @@ export class CheckpointRegistry {
       ["branchId"]
     );
   }
+
+  async removeBranch(branchId) {
+    const current = await this.getBranch(branchId);
+
+    if (!current) {
+      return null;
+    }
+
+    await removePath(this.branchFile(branchId));
+    return current;
+  }
+
+  async removeSession(agentId, sessionId) {
+    await removePath(this.sessionIndexFile(agentId, sessionId));
+    return {
+      agentId,
+      sessionId
+    };
+  }
 }

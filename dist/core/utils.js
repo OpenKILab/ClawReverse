@@ -202,6 +202,15 @@ export function createDefaultHostBridge(host = {}) {
     })),
     createSession: host.createSession ?? (async () => ({
       sessionId: crypto.randomUUID()
+    })),
+    cleanupDeletedTree: host.cleanupDeletedTree ?? (async () => ({
+      deletedAgentIds: [],
+      deletedSessionRecords: [],
+      deletedSessionTranscripts: [],
+      deletedWorkspaces: [],
+      deletedAgentDirs: [],
+      deletedLogFiles: [],
+      configChanged: false
     }))
   };
 }
